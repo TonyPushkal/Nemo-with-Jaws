@@ -1,0 +1,20 @@
+# Personal data: never commit briefs, résumés, run outputs or history
+briefs/
+runs/
+data/
+resume*
+*.sqlite
+*.db
+.env
+.env.*
+
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.DS_Store
+probe_out/

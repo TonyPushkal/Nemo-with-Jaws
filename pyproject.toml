@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemo-with-jaws"
+version = "0.0.1"
+description = "Personal job-search agent (Phase 1: find relevant jobs)."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.5", "PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+nemo = "nemo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,35 +1,30 @@
-# Phase 1 — Milestones and Evaluation
+# Phase 1 — Milestones and Tests (v3)
 
-Status: DRAFT. Each milestone is small, ends in something runnable, and can be stopped after without wasted work.
+Status: DRAFT v3 for approval. Deliberately small.
 
-## Milestones
+## M0 — Scaffold (done) and guard fix (done in v3.1)
+Project skeleton, provider interfaces, offline fakes, no-network test fixture, and the corrected monetary guard with its SQLite spend ledger (92 offline tests pass).
 
-| # | Milestone | Done when |
-|---|---|---|
-| **M0** | **Foundations.** Repo scaffold (`pyproject`, tests, `.gitignore` for `briefs/ runs/ data/ .env`), brief schema + validation, `nemo init` / `nemo brief check`, budget object. Also: you write your real brief and list ~15–20 jobs you already consider relevant / not relevant (the seed gold set). | A1, A8 unit-tested; your brief validates. |
-| **M0b** | **Provider bake-off** (throwaway script, no pipeline): run 3–5 of your queries through Tavily, OpenAI `web_search`, and ATS adapters for your preferred companies. | A table of recall vs your seed list, live-link rate, cost per useful hit; provider default chosen. |
-| **M1** | **One useful end-to-end search** (no database). Deterministic queries from the brief → one provider → fetch top pages → JSON-LD/LLM extraction → hard checks → LLM assessment with quote grounding → `shortlist.md` + `run-report.md`. Budgets, retry policy and issue log included from day one. | A2, A3, A4, A7, A8 on your real brief; you label the output. |
-| **M2** | **History and dedup.** SQLite schema, canonical URLs, job identity, `new / still open / closed`, `nemo mark`, `nemo show`, `nemo history`. | A5; second run shows only new jobs as new. |
-| **M3** | **Evaluation harness.** Labels stored, metrics command, stage-level failure attribution, saved-page snapshots for assessment regression. | `nemo eval` prints metrics vs your labels. |
-| **M4** | **Verification and freshness.** Greenhouse/Lever/Ashby adapters, employer-page matching, closed-job detection, re-verify before reshowing. | A6; dead-link rate measured. |
-| **M5** | **Query expansion.** LLM proposes related titles and responsibility phrases from the brief; one bounded adaptive round; per-query yield tracking so weak queries are dropped. | Recall on your labels improves without exceeding budgets. |
-| **M6** | **Scheduled runs** (later Phase 1). `launchd`/cron calling `nemo search --brief …`, a "what's new" summary file, optional notification. No always-on daemon. | A scheduled run completes and reports partials. |
+## M1 — One complete résumé-to-LinkedIn-results run
+Deliverable: `python scripts/run_search.py --resume <file> --lookback 7d` produces a real result set (or an honest empty one) using the providers you choose, persisted in SQLite. Built in this order:
 
-## Evaluation
+1. **Feasibility probe (prepared; not yet run).** `scripts/probe_provider.py` runs 5 fixed generic queries (`software engineer`, `registered nurse`, `accountant`, `data analyst`, `marketing manager` — chosen only to exercise the provider, not your preferences; override with `--queries-file`) through one provider restricted to linkedin.com with raw content requested, and saves the raw responses plus a summary. It needs no résumé and no LLM, and does no parsing or admission of dates. Currently one adapter exists (Tavily, `basic` depth ≈ $0.04 worst case for 5 queries; `--depth advanced` ≈ $0.08); more adapters can be added without changing the probe. Run it only after you set a budget and a key: `NEMO_PAID_CALLS_ENABLED=true NEMO_MAX_USD_PER_RUN=0.10 TAVILY_API_KEY=… python scripts/probe_provider.py` (`--dry-run` prints the plan without a key or a call).
+   **What we read from it:** (a) share of results that are individual job-view URLs; (b) whether raw page content is returned for them and how long it is; (c) whether it contains posting-time text and in which form (structured `datePosted`, absolute date, "N days ago"); (d) whether "Reposted/Updated" or other jobs' times appear; (e) whether the response carries any retrieval/crawl time; (f) login-wall text. Decision after reading: proceed as designed, change provider/parameters and re-probe, or change the contract (e.g. if no provider returns posting-time evidence, strict results will be empty by design and we should say so rather than loosen the gate).
+2. Config (providers, credentials, caps), résumé reader, lookback/window.
+3. Résumé profile + query generation (one LLM call, schema-validated).
+4. Discovery with bounded retries (each attempt through the guard); URL filter; de-duplication by job id.
+5. Posting-time extraction and the corrected window gate (doc 03 §4).
+6. Assessment with the five outcomes, content level, limitations and quote grounding (doc 03 §5).
+7. SQLite persistence, `SearchResponse` JSON (incl. `unassessed`), Markdown summary, issues and counts.
+8. Tests (below) and one real run; report counts honestly, including how many candidates were lost to unknown dates.
 
-Purpose: compare the shortlist with jobs *you* consider relevant, and know which stage lost the ones we missed.
+Done when acceptance criteria A1–A12 in doc 02 hold.
 
-**Gold set (yours).** (1) Seed: jobs you already consider relevant or not, with a one-line reason each. (2) After each early run, you label the shortlist top-k and a random sample of *excluded* jobs (to catch false negatives from hard filters). (3) Optionally the same brief given to ChatGPT; label the union blind, so the baseline you have been using is measured with the same ruler. Snapshots of the posting text are saved, because live jobs expire.
+## M2 — Later, only if wanted
+Service wrapper for the larger system (importable package or thin HTTP layer), a second provider adapter, assessment reuse cache, and tuning of caps/prompts from what M1 shows.
 
-**Metrics** (all reported with sample sizes; small counts are anecdotes, not statistics):
-- **Recall of known-relevant jobs still open**, plus a failure-stage breakdown: *not discovered / fetch failed / extraction failed / wrongly excluded by hard filter / verdict too low*.
-- **Precision@k** of `strong_fit` + `possible_fit` (k = 10, 20) using your labels.
-- **False-exclusion rate** among sampled excluded jobs.
-- **Live-link rate** and **duplicate rate** in the shortlist.
-- **Grounding rate**: share of fit claims whose quote verified (should be 100% by construction; monitors the gate).
-- **"Unknown honesty"** spot check: sampled unknowns where the posting actually stated the fact.
-- **Cost and time** per run and per relevant job found.
-
-**Regression.** Assessment logic (prompts, model, rules) is re-run on saved posting snapshots and compared with your labels whenever it changes; discovery quality is measured only on fresh runs.
-
-**Proposed targets (to be confirmed by you, not requirements):** find ≥70% of your known-relevant, still-open jobs; ≥60% of top-10 judged relevant; 0 ungrounded claims; dead links <10%. Revisit after M3 once real numbers exist.
+## Tests (basic, offline by default)
+- Unit: lookback parsing and bounds; window maths; LinkedIn URL accept/reject/canonicalise (done); posting-time parser and widened intervals (absolute, date-only, relative, "Reposted"/"Updated" ignored, other jobs' dates, future dates, missing retrieval time); gate classification incl. boundary; grounding gate and the five assessment outcomes; caps, retries and the monetary guard (done).
+- Fixture-based pipeline tests with fake providers: full run to SQLite and response; re-run returns previously seen jobs; provider dates/freshness never admit a job (A5); injected 429/5xx/timeout/malformed-JSON produce issues, not crashes; no request to linkedin.com is ever attempted (A3).
+- Live smoke test: opt-in only (env flag), disabled by default, respects the paid-call guard.
+- No evaluation harness. After the first real run, you eyeball the results; if you want a stricter check later we can add it.
