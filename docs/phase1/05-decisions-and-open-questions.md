@@ -1,7 +1,13 @@
 # Phase 1 — Decisions, Assumptions, Open Questions (v3)
 
+## What changed in v3.3 (job profile input)
+- Primary input is now a UTF-8 Markdown/text job profile (Experience, Desired roles, Must-haves, Nice-to-haves, Exclusions) parsed deterministically into a validated `JobProfile`; no configuration framework. Résumé input is deferred (a later converter can produce the same profile); the résumé-extraction code and fixture were removed.
+- Matching answers every criterion yes/no/unknown; missing job information is unknown; only verified contradictions/exclusions block; unknown must-haves cap at `possible_match`.
+- Queries are deterministic, one per desired role; model-generated query variations are dropped for now.
+- Unchanged: lookback filtering, LinkedIn-only output, the outcome set, SQLite history (with `profile_sha256` in place of `resume_sha256`).
+
 ## Model hosting decided (after v3.2)
-Local Ollama, `qwen3.5:4b`, 4,096-token context, one request at a time, on this 8 GB M1. Built: `providers/ollama.py` (adapter, `think` off, context preflight, sequential), `tasks.py` (résumé → profile, job → match with code-side quote grounding and outcome rules), `scripts/local_model_check.py`. Measurements and caveats are in `06-local-model-findings.md`; the main ones are memory pressure on 8 GB, ~10–20 s per call, and that only synthetic content has been tested.
+Local Ollama, `qwen3.5:4b`, 4,096-token context, one request at a time, on this 8 GB M1. Built: `providers/ollama.py` (adapter, `think` off, context preflight, sequential), `tasks.py` (job → match; résumé extraction since removed in v3.3 with code-side quote grounding and outcome rules), `scripts/local_model_check.py`. Measurements and caveats are in `06-local-model-findings.md`; the main ones are memory pressure on 8 GB, ~10–20 s per call, and that only synthetic content has been tested.
 
 ## What changed in v3.2 (your latest corrections)
 1. **Date gate:** the *entire* posting-time interval must lie inside the requested window (doc 03 §4). Documented consequence: time-zone-unknown date-only evidence (a 50-hour interval) cannot qualify for a 24-hour window, nor can day-granularity evidence in general.
@@ -24,7 +30,7 @@ Local Ollama, `qwen3.5:4b`, 4,096-token context, one request at a time, on this 
 
 ## Confirmed by you
 - Python; script first, calling the core service function; later joins a larger system.
-- Inputs = résumé + lookback. Search terms and relevance are inferred from the résumé.
+- Inputs = job profile + lookback (v3.3; originally résumé + lookback).
 - LinkedIn job URLs only, found through a search provider; no LinkedIn login or direct scraping.
 - Window enforced by posting-time evidence, not search freshness or page-update dates; unknown-date listings excluded from strict results and counted.
 - Previously seen jobs may reappear; SQLite persistence for runs and de-duplicated jobs.
@@ -41,7 +47,7 @@ Local Ollama, `qwen3.5:4b`, 4,096-token context, one request at a time, on this 
 - Location is reported, not filtered.
 - De-duplication is by LinkedIn job id only; reposts under new ids are not merged.
 - `results` holds only `strong_match` and `possible_match`; snippet-only judgements cap at `possible_match`.
-- Store only résumé hash + inferred profile, not résumé text.
+- Store the normalised profile JSON and its hash.
 - No agent framework; fixed pipeline.
 
 ## Assumptions (unverified)
@@ -54,9 +60,9 @@ Local Ollama, `qwen3.5:4b`, 4,096-token context, one request at a time, on this 
 
 ## Open questions
 1. **Probe run (yours):** supply `TAVILY_API_KEY` and a small budget locally (about $0.10 covers the default 5 queries at `basic`), run the probe, and tell me the output folder name; I will read the raw returned descriptions and dates with you. Would you rather probe a different provider first? The LLM provider is now local Ollama `qwen3.5:4b` (see above).
-2. **Location:** résumé location as a search hint/filter, or leave unconstrained (proposed) and just report location?
-3. **Privacy:** resolved by the local model: résumé text stays on this machine.
+2. **Location:** location is reported, and filtered only if you write it as a must-have or exclusion. Should it also narrow the search queries?
+3. **Privacy:** resolved by the local model: the profile stays on this machine.
 4. **Monthly budget:** still unset, so paid calls stay disabled until you provide one.
 5. **Lookback bounds:** proposed min 1h, max 30d; adequate?
-6. **Résumé formats:** PDF and DOCX support adds two small libraries; OK, or text/Markdown only at first?
+6. **Résumé → profile converter:** deferred; when wanted, which formats (PDF/DOCX add two small libraries)?
 7. **Repo licence** (before making anything public).

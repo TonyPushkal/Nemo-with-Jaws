@@ -6,7 +6,7 @@ Personal job-search agent.
 - Phase 2: tailor résumé, ATS parsing/format/alignment checks.
 - Phase 3: assist with applications.
 
-**Status: Phase 1 plan v3.2 (résumé + lookback → LinkedIn job URLs). Built: corrected monetary guard + spend ledger, Tavily adapter, and a provider feasibility probe (ready to run, not yet run). The search service itself is not started; the v2 modules were removed (recoverable from tag `checkpoint-before-prune`).** Contract and plan:
+**Status: Phase 1 plan v3.3 (job profile + lookback → LinkedIn job URLs). Built: monetary guard + spend ledger, Tavily adapter and feasibility probe (not yet run), local Ollama adapter, job-profile parser (`src/nemo/profile.py`) and matcher (`src/nemo/tasks.py`). The search service itself is not started.** Contract and plan:
 
 1. [Reference repo assessment](docs/phase1/01-reference-assessment.md) (written for the earlier plan; lessons still apply)
 2. [Scope and contract, non-goals, acceptance criteria](docs/phase1/02-scope.md)
@@ -30,7 +30,7 @@ Local model (Ollama, `qwen3.5:4b`, 4,096 context, one request at a time; finding
 ```bash
 brew install ollama && ollama pull qwen3.5:4b
 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_CONTEXT_LENGTH=4096 ollama serve   # separate terminal
-.venv/bin/python scripts/local_model_check.py                # synthetic check; --from-probe <dir> for real content
+.venv/bin/python scripts/local_model_check.py                # synthetic check; --profile my.md / --from-probe <dir>
 ```
 
 Paid external calls are refused unless `NEMO_PAID_CALLS_ENABLED=true` and `NEMO_MAX_USD_PER_RUN` are set (optional `NEMO_MONTHLY_USD_CAP`). Keys come from the environment or `.env` only. Résumés, SQLite files, `.env` and probe output are gitignored.

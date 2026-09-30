@@ -5,14 +5,13 @@ Status: DRAFT v3.2 (entire-interval date gate; failed requests treated as potent
 ## 1. Data flow
 
 ```
- script ──► search_linkedin_jobs(resume_path, lookback)         (core service function)
+ script ──► search_linkedin_jobs(profile_path, lookback)        (core service function)
               │
               ▼
-   [1 Validate]     lookback -> [window_start, window_end=now (UTC)]; read résumé text
+   [1 Validate]     lookback -> window; parse + validate the job profile (no model)
               │
               ▼
-   [2 Profile+queries]   LLM (one call): titles, related titles, skills, seniority, domains
-              │                          + ≤N LinkedIn-oriented search queries
+   [2 Queries]      one `site:linkedin.com/jobs/view/ <role>` per desired role (deterministic)
               ▼
    [3 Discover]     SearchProvider (restricted to linkedin.com) ──► hits {url, title, snippet, content?}
               │        every hit filtered by URL rule; freshness/date hints from the provider are ignored
@@ -26,7 +25,7 @@ Status: DRAFT v3.2 (entire-interval date gate; failed requests treated as potent
    [6 Window gate]   in_window | outside | boundary | unknown_date      (only in_window continues)
               │
               ▼
-   [7 Assess]   LLM per job vs résumé profile; content level + limitations; quote-checked;
+   [7 Assess]   LLM per job vs job profile; each criterion yes/no/unknown; content level + limitations; quote-checked;
               │        outcomes: match | not_relevant | insufficient_evidence (never conflated)
               │
               ▼
@@ -34,12 +33,12 @@ Status: DRAFT v3.2 (entire-interval date gate; failed requests treated as potent
    every stage ── Budget/caps + retry policy + issue log ──► response.issues
 ```
 
-Modules (`src/nemo/`): `service.py` (core function, orchestration), `resume.py`, `window.py` (lookback parsing, interval maths), `linkedin.py` (URL rules), `posting_time.py` (evidence extraction), `assess.py`, `store.py` (SQLite), `config.py` (providers, credentials, caps), `budget.py`, `providers/{base,guard,fake,…}.py`, `schema.py` (request/response models). `scripts/run_search.py` is a thin caller.
+Modules (`src/nemo/`): `service.py` (core function, orchestration), `profile.py` (job profile; built), `tasks.py` (matcher; built), `window.py` (lookback parsing, interval maths), `linkedin.py` (URL rules), `posting_time.py` (evidence extraction), `assess.py`, `store.py` (SQLite), `config.py` (providers, credentials, caps), `budget.py`, `providers/{base,guard,fake,…}.py`, `schema.py` (request/response models). `scripts/run_search.py` is a thin caller.
 
 ## 2. Core-function boundary
 
 ```python
-search_linkedin_jobs(resume_path: Path, lookback: timedelta, *, config: Config | None = None) -> SearchResponse
+search_linkedin_jobs(profile_path: Path, lookback: timedelta, *, config: Config | None = None) -> SearchResponse
 ```
 Response (pydantic, `schema_version` field, JSON-serialisable):
 
@@ -105,23 +104,24 @@ Stored evidence: `jobs` keeps the narrowest *consistent* interval seen across ru
 *Assumptions the probe must settle before this is implemented:* whether provider content for LinkedIn job pages contains posting-time text at all; whether it is structured or relative; whether the provider reports retrieval time (Tavily's documented response fields do not); how "N days ago" is rounded; whether other jobs' times appear in the same content.
 
 ## 5. Relevance assessment
-1. **Résumé profile (one LLM call, output schema-validated):** target/related titles, core skills, seniority and years, domains, and any location mentioned in the résumé. Résumé text is truncated to a configured limit; the profile (not the résumé text) is stored.
-2. **Queries:** the same call proposes ≤`max_queries` search strings likely to surface LinkedIn job pages for those titles/skills; they are de-duplicated and capped in code.
-3. **Per-job assessment (one call per in-window job, capped):** input = résumé profile + the job content the provider returned. The model proposes an outcome, explanation, quotes and limitations. Judged on responsibilities and seniority, not keyword overlap; no percentages.
+1. **Job profile (input; `profile.py`, no model).** UTF-8 Markdown/text (BOM and CRLF accepted), optional `# Title`, then exactly these `##` sections, each present once (aliases accepted, e.g. *Requirements*, *Deal-breakers*): *Experience* (free text or bullets), *Desired roles*, *Must-haves*, *Nice-to-haves*, *Exclusions* (one item per bullet; indented lines continue a bullet; `<!-- -->` comments ignored). Validation: Experience and Desired roles non-empty; ≤8 roles, ≤6 items per criteria list, ≤160 chars per item, Experience ≤1,200 chars, whole profile ≤2,500 chars (so job text still fits a 4,096-token context); duplicates removed; an item may not be in two lists; unknown headings or stray text are errors with line numbers. It normalises into a frozen `JobProfile` whose criteria get stable ids `M1…` (must), `N1…` (nice), `X1…` (exclusion). `nemo.profile.TEMPLATE` is an empty template. Stored: normalised profile JSON and its SHA-256.
+2. **Queries:** one `site:linkedin.com/jobs/view/ <role>` per desired role, deterministic, capped by `max_queries`. (Model-generated variations are dropped for now.)
+3. **Per-job assessment (one call per in-window job, capped):** input = job profile + the job content the provider returned. The model proposes an outcome, explanation, fit/mismatch quotes and, **for every criterion id, `yes` (the job text shows it is true of the job) / `no` (shows it is false) / `unknown` (text is silent)** with a quote for yes/no. Judged on responsibilities and seniority, not keyword overlap; no percentages.
+   Code then resolves criteria: a missing answer, an invalid status, or a yes/no whose quote is not in the job text becomes `unknown`. **A verified `no` on a must-have or a verified `yes` on an exclusion makes the job `not_relevant`** (reason names the ids). Unknowns never block; an unknown must-have caps the job at `possible_match`. Nice-to-haves affect only the explanation.
 4. **Content level** (`snippet` / `partial_description` / `full_description`) is assigned by code from the length/structure of the returned content, not by the model, and is shown to the user.
 5. **Grounding gate:** every quote must be a verbatim substring of the job content; claims that fail are removed.
 6. **Outcomes are decided by code from what survives the gate — insufficient evidence is never turned into irrelevance:**
 
 | Outcome | Condition | Where it goes |
 |---|---|---|
-| `strong_match` / `possible_match` | ≥1 grounded quote supports fit on responsibilities/seniority; `strong_match` needs `partial_description` or better; snippet-only caps at `possible_match` | `results` |
-| `not_relevant` | ≥1 grounded quote shows a concrete mismatch (e.g. a different function or a seniority far from the résumé), and content is enough to judge | stored, counted, not returned |
+| `strong_match` / `possible_match` | no blocking criterion; ≥1 grounded fit quote (or verified must-have `yes`); `strong_match` needs `partial_description` or better and no unknown must-have, else capped at `possible_match` | `results` |
+| `not_relevant` | a verified must-have `no` or exclusion `yes`, or ≥1 grounded quote showing clearly different work or seniority | stored, counted, not returned |
 | `insufficient_evidence` | content too thin to judge (typically snippet-only with no clear mismatch), or the model's claims were all removed by the gate | `unassessed` (+ count) |
 | `assessment_failed` | provider error or malformed output after one repair attempt | `unassessed` + issue |
 | `not_assessed_budget` | LLM cap reached before this job | `unassessed` + `budget` issue |
 
-7. **Location:** returned when present in the content; it is not a filter (the résumé's location is not assumed to be a target). *Open question 2.*
-8. Optional cost saver: reuse a stored assessment when (job content hash, résumé hash, prompt version, model) match. It never suppresses a job from results.
+7. **Location:** returned when present in the content; it is not a filter (unless the profile states a location must-have, which is then judged like any other criterion). *Open question 2.*
+8. Optional cost saver: reuse a stored assessment when (job content hash, profile hash, prompt version, model) match. It never suppresses a job from results.
 
 ## 6. Providers and configuration
 Interfaces (already scaffolded in M0): `SearchProvider` (`search(query, max_results) -> hits with url/title/snippet/content/retrieved_at`) and `LLMProvider` (`complete_json`). Both declare `is_paid`. Configuration comes from environment variables or a gitignored config file: provider names, base URLs, API keys, model names, caps. Secrets never enter SQLite, responses or logs.
@@ -133,15 +133,15 @@ Requirements on the search provider: restrict results to `linkedin.com`; return 
 | Tavily Search (+Extract) | `include_domains` (≤300), `include_raw_content`, `max_results` ≤20, per-result content; search 1–2 credits, free 1,000 credits/month; Extract ≤20 URLs/call with `failed_results`. Its `published_date` is a "publication/update date estimate" → **not used**. | Returns no retrieval time in the documented fields (relative dates would be `unknown` unless `assume_live_fetch…` is enabled). Whether it returns useful content for LinkedIn job pages is untested. |
 | OpenAI Responses `web_search` | `filters.allowed_domains` (≤100), sources listing, citations; $10/1k calls + tokens. | The model reads pages and we see its output, not raw page text, so posting-time quotes cannot be verified deterministically — weaker for this contract unless the tool exposes page content. |
 | Other search APIs (e.g. a SERP-style API) | Domain-restricted queries; snippets. | Not checked. Snippets rarely carry posting time. |
-| LLM: hosted vs self-hosted | Self-hosted = OpenAI-compatible endpoint (assumption to verify per server). | Keeps the résumé on your machine; schema-following and quality vary, so the schema check and quote gate matter more. |
+| LLM: hosted vs self-hosted | Self-hosted = OpenAI-compatible endpoint (assumption to verify per server). | Keeps the profile on your machine; schema-following and quality vary, so the schema check and quote gate matter more. |
 
-The résumé content is sent to whichever LLM provider is configured; a hosted provider means personal data leaves the machine. *Open question 3.*
+The profile is sent to whichever LLM provider is configured; with the chosen local Ollama model it stays on this machine. *Open question 3.*
 
 ## 7. SQLite (6 tables, `data/nemo.sqlite`, gitignored)
 
 | Table | Columns |
 |---|---|
-| `runs` | id, schema_version, started_at, finished_at, status, resume_sha256, lookback_seconds, window_start, window_end, profile_json, providers_json, counts_json, usage_json |
+| `runs` | id, schema_version, started_at, finished_at, status, profile_sha256, lookback_seconds, window_start, window_end, profile_json, providers_json, counts_json, usage_json |
 | `run_queries` | id, run_id, text, status (`ok`/`empty`/`failed`), result_count, error |
 | `jobs` | linkedin_job_id (PK), url, title, company, location, first_seen_run, first_seen_at, last_seen_run, last_seen_at, posted_earliest, posted_latest, posting_basis, posting_quote, posting_retrieved_at |
 | `run_jobs` | run_id, linkedin_job_id (PK together), window_status (`in_window`/`outside`/`boundary`/`unknown_date`), content_level, content_hash, content_excerpt, assessment_json, outcome (`strong_match`/`possible_match`/`not_relevant`/`insufficient_evidence`/`assessment_failed`/`not_assessed_budget`), returned (bool), exclusion_reason |
@@ -161,8 +161,8 @@ WAL mode, one writer at a time (a second concurrent run waits or fails fast with
   6. An actual cost above the reservation is recorded and stops the run (`cost_overrun`).
   7. Money is integer micro-USD, rounded up. The USD-per-credit rate for Tavily is the highest listed pay-as-you-go rate ($0.008), so even free-tier calls are treated as paid until you say otherwise.
 - **Retries:** only transient failures (429/5xx/timeouts/connection): ≤2 retries, exponential backoff with jitter, honour `Retry-After`, each retry counts toward the caps. No retry on 401/403/404. Per-provider circuit breaker after 3 consecutive failures. One repair attempt for malformed model JSON, then `assessment_failed` (the job is counted, not silently dropped).
-- **Errors:** every stage returns typed results; nothing is swallowed. Status is `failed` only if no usable candidates could be produced (e.g. résumé unreadable, every search failed), `partial` if any stage hit a cap or failure, else `complete`.
-- **Privacy:** the résumé file is never modified or copied; only its hash and the inferred profile are stored.
+- **Errors:** every stage returns typed results; nothing is swallowed. Status is `failed` only if no usable candidates could be produced (e.g. every search failed; an invalid profile fails before the run starts), `partial` if any stage hit a cap or failure, else `complete`.
+- **Privacy:** the profile file is never modified; its hash and normalised JSON are stored.
 
 ## 9. Status of the scaffold
 Built: `budget.py` + `ledger.py` (monetary guard), `providers/{base,guard,fake,tavily}.py`, `linkedin.py` (URL rule), `probe.py` + `scripts/probe_provider.py`, `envfile.py`, and an offline test suite that blocks all network access.

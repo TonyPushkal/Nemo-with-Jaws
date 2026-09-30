@@ -5,15 +5,15 @@ Status: DRAFT v3.2. Deliberately small.
 ## M0 — Scaffold (done) and guard fix (done in v3.1)
 Project skeleton, provider interfaces, offline fakes, no-network test fixture, and the corrected monetary guard with its SQLite spend ledger (92 offline tests pass).
 
-## M1 — One complete résumé-to-LinkedIn-results run
-Deliverable: `python scripts/run_search.py --resume <file> --lookback 7d` produces a real result set (or an honest empty one) using the providers you choose, persisted in SQLite. Built in this order:
+## M1 — One complete profile-to-LinkedIn-results run
+Deliverable: `python scripts/run_search.py --profile <file.md> --lookback 7d` produces a real result set (or an honest empty one) using the providers you choose, persisted in SQLite. Built in this order:
 
-1. **Feasibility probe (ready for you to run locally).** `scripts/probe_provider.py` sends 5 fixed generic queries — `site:linkedin.com/jobs/view/ <role>` for `software engineer`, `registered nurse`, `accountant`, `data analyst`, `marketing manager` (chosen only to exercise the provider, not your preferences; `--queries-file` accepts other roles) — through one provider restricted to linkedin.com with raw content requested, and saves the raw responses plus a summary in `probe_out/<timestamp>/`. It needs no résumé and no LLM and does no date parsing or job admission. One adapter exists (Tavily; `basic` ≈ $0.04 worst case for 5 queries, `--depth advanced` ≈ $0.08).
+1. **Feasibility probe (ready for you to run locally).** `scripts/probe_provider.py` sends 5 fixed generic queries — `site:linkedin.com/jobs/view/ <role>` for `software engineer`, `registered nurse`, `accountant`, `data analyst`, `marketing manager` (chosen only to exercise the provider, not your preferences; `--queries-file` accepts other roles) — through one provider restricted to linkedin.com with raw content requested, and saves the raw responses plus a summary in `probe_out/<timestamp>/`. It needs no profile and no LLM and does no date parsing or job admission. One adapter exists (Tavily; `basic` ≈ $0.04 worst case for 5 queries, `--depth advanced` ≈ $0.08).
    **To run:** copy `.env.example` to `.env` (gitignored) and fill `TAVILY_API_KEY`, `NEMO_PAID_CALLS_ENABLED=true`, `NEMO_MAX_USD_PER_RUN=0.10`; then `.venv/bin/python scripts/probe_provider.py --dry-run` (no call) and `.venv/bin/python scripts/probe_provider.py` (asks for confirmation; `--yes` to skip). The key is read locally, never printed, never written to output. Without a key, a budget, or a confirmation it refuses and makes no call.
    **What we read from it:** (a) share of results that are individual job-view URLs (this also tests whether the provider honours `site:` with a path); (b) whether raw page content is returned and how long it is; (c) whether it contains posting-time text and in which form (structured `datePosted`, absolute date, "N days ago"); (d) whether "Reposted/Updated" or other jobs' times appear; (e) whether the response carries any retrieval/crawl time; (f) login-wall text.
    **Then, before any further build:** we read the actual returned descriptions and date evidence together (the raw JSON, not only the counts), apply the doc 03 §4 gate by hand to a sample, and decide: proceed as designed, change provider/parameters and re-probe, or change the contract (e.g. if only day-granularity evidence comes back, strict 24 h results will be empty by design and we say so rather than loosen the gate).
-2. Config (providers, credentials, caps), résumé reader, lookback/window.
-3. Résumé profile + query generation (one LLM call, schema-validated).
+2. Config (providers, credentials, caps), lookback/window. (Job profile parser and matcher: done.)
+3. Queries from desired roles (done, deterministic).
 4. Discovery with bounded retries (each attempt through the guard); URL filter; de-duplication by job id.
 5. Posting-time extraction and the corrected window gate (doc 03 §4).
 6. Assessment with the five outcomes, content level, limitations and quote grounding (doc 03 §5).

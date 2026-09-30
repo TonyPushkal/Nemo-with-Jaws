@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Check the local model (Ollama) on the two Phase 1 tasks and measure it on this machine.
 
-    python scripts/local_model_check.py                      # synthetic résumé + synthetic jobs
-    python scripts/local_model_check.py --resume my.txt      # your résumé (text/markdown) instead
+    python scripts/local_model_check.py                      # synthetic profile + synthetic jobs
+    python scripts/local_model_check.py --profile my.md      # your job profile instead
     python scripts/local_model_check.py --from-probe probe_out/<timestamp>   # real returned job content
 
 Prerequisites: `OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_CONTEXT_LENGTH=4096 ollama serve`
 and `ollama pull qwen3.5:4b`. Requests are strictly sequential. Nothing leaves this machine; the
-résumé is sent only to the local server. Reports go to probe_out/local_model/<timestamp>/.
+profile is sent only to the local server. Reports go to probe_out/local_model/<timestamp>/.
 """
 
 from __future__ import annotations
@@ -28,7 +28,8 @@ from nemo.linkedin import linkedin_job_id
 from nemo.probe import _LOGIN, _SIMILAR
 from nemo.providers.base import ProviderError
 from nemo.providers.ollama import OllamaLLM
-from nemo.tasks import assess_job, extract_profile
+from nemo.profile import ProfileError, load_profile
+from nemo.tasks import assess_job
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "tests" / "fixtures"
@@ -128,7 +129,7 @@ def main(argv=None) -> int:
     ap.add_argument("--model", default="qwen3.5:4b")
     ap.add_argument("--num-ctx", type=int, default=4096)
     ap.add_argument("--num-predict", type=int, default=600)
-    ap.add_argument("--resume", help="résumé as .txt/.md (default: the synthetic fixture)")
+    ap.add_argument("--profile", default=str(FIX / "synthetic_profile.md"), help="UTF-8 Markdown job profile")
     ap.add_argument("--from-probe", help="probe_out/<timestamp> folder: assess the real returned job content")
     ap.add_argument("--max-jobs", type=int, default=12)
     ap.add_argument("--no-cold-start", action="store_true", help="skip unloading the model first")
@@ -145,7 +146,11 @@ def main(argv=None) -> int:
         print(f"Model {args.model} is not installed (have: {installed}). Run: ollama pull {args.model}", file=sys.stderr)
         return 2
 
-    resume_text = Path(args.resume).read_text() if args.resume else (FIX / "synthetic_resume.txt").read_text()
+    try:
+        profile = load_profile(args.profile)
+    except ProfileError as exc:
+        print(f"invalid profile: {exc}", file=sys.stderr)
+        return 2
     jobs = load_jobs(args)
     out_dir = Path(args.out_dir) / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -166,23 +171,7 @@ def main(argv=None) -> int:
               f"gen {m.get('completion_tokens','-'):>4} tok @ {m.get('gen_tokens_per_s','-')} tok/s  "
               f"{'ERROR ' + err if err else ''}", flush=True)
 
-    # 1) résumé -> profile, twice (first call is the cold start), then a deliberately oversized résumé
-    profile = None
-    for i in (1, 2):
-        out, err, wall, mem = timed(lambda: extract_profile(llm, resume_text))
-        record(f"profile#{i}", "profile", out, err, wall, mem, None if not out else {
-            "problems": out.problems, "ungrounded_skills": out.ungrounded_skills,
-            "resume_chars": len(resume_text), "resume_truncated": out.resume_truncated, "profile": out.profile})
-        profile = profile or (out.profile if out else None)
-    out, err, wall, mem = timed(lambda: extract_profile(llm, (resume_text + "\n\n") * 5))
-    record("profile-oversized", "profile", out, err, wall, mem, None if not out else {
-        "problems": out.problems, "ungrounded_skills": out.ungrounded_skills, "resume_truncated": out.resume_truncated})
-    if profile is None:
-        print("No profile could be extracted; cannot assess jobs.", file=sys.stderr)
-        (out_dir / "report.json").write_text(json.dumps({"env": env, "rows": rows}, indent=2))
-        return 1
-
-    # 2) (profile, job) -> match, one job at a time; the first job is repeated to check determinism
+    # (profile, job) -> match, one job at a time; the first job is repeated to check determinism
     for n, job in enumerate(jobs + jobs[:1]):
         name = job["id"] + ("(repeat)" if n >= len(jobs) else "")
         out, err, wall, mem = timed(lambda: assess_job(llm, profile, job["text"]))
@@ -190,7 +179,7 @@ def main(argv=None) -> int:
         if out:
             extra.update(outcome=out.outcome, model_outcome=out.model_outcome, note=out.note, explanation=out.explanation,
                          fit_quotes=out.fit_quotes, mismatch_quotes=out.mismatch_quotes, dropped_quotes=out.dropped_quotes,
-                         limitations=out.limitations, content_level=out.content_level, job_truncated=out.job_truncated,
+                         limitations=out.limitations, criteria=[c.__dict__ for c in out.criteria], content_level=out.content_level, job_truncated=out.job_truncated,
                          as_expected=(job.get("expect") is None) or out.outcome in job["expect"])
         record(name, "assess", out, err, wall, mem, extra)
 
