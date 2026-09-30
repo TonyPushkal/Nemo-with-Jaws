@@ -1,6 +1,6 @@
 # Phase 1 — Architecture (v3)
 
-Status: DRAFT v3.1 (corrects date admission, assessment outcomes, monetary guard). Plain Python 3.12, one process, SQLite, a fixed pipeline. No agent framework, no loops beyond bounded retries.
+Status: DRAFT v3.2 (entire-interval date gate; failed requests treated as potentially charged; superseded v2 modules removed). Plain Python 3.12, one process, SQLite, a fixed pipeline. No agent framework, no loops beyond bounded retries.
 
 ## 1. Data flow
 
@@ -52,7 +52,7 @@ Response (pydantic, `schema_version` field, JSON-serialisable):
     "url": "https://www.linkedin.com/jobs/view/<id>", "linkedin_job_id": "<id>",
     "title": "…", "company": "…", "location": "… | null",
     "posting_time": {"earliest": "…Z", "latest": "…Z", "basis": "structured_date|text_date|relative_text",
-                     "quote": "…", "retrieved_at": "…Z | null", "notes": ["date-only, assumed UTC"]},
+                     "quote": "…", "retrieved_at": "…Z | null", "notes": ["date-only, time zone unknown, interval 50h wide"]},
     "fit": {"tier": "strong_match|possible_match", "explanation": "…", "quotes": ["…"],
             "content_level": "snippet|partial_description|full_description", "limitations": ["…"]},
     "previously_seen": true, "first_seen_at": "…Z"
@@ -74,20 +74,31 @@ Response (pydantic, `schema_version` field, JSON-serialisable):
 ## 3. LinkedIn URL rule (assumption — verify against real provider output)
 Accept hosts `linkedin.com` / `*.linkedin.com` with path `/jobs/view/<id>` or `/jobs/view/<slug>-<id>` where `<id>` is the trailing run of digits. Canonical form `https://www.linkedin.com/jobs/view/<id>`. Drop and count everything else (`/jobs/search`, `/jobs/collections`, `/company/…`, `/posts/…`, `/in/…`). The job id is the de-duplication key.
 
-## 4. Posting-time evidence and the window gate (v3.1: uncertain evidence never admits)
-The window is `[window_start, window_end]`, `window_end` = run start (UTC), `window_start = window_end − lookback`. Evidence must come from **content the provider returned for that URL** (the quote must be a substring of it). For each candidate we derive the interval `[earliest, latest]` that the posting instant must lie in, **widened to cover every reading we cannot rule out**:
+## 4. Posting-time evidence and the window gate (v3.2: the entire interval must be inside the window)
+**Window.** `window_end` = `T_gate`, one UTC instant taken after all discovery/retrieval for the run has finished (so every retrieval time `T_ret ≤ T_gate`); `window_start = T_gate − lookback`. Both are reported in the response; the run start is recorded separately.
 
-| Evidence | Interval | Notes |
-|---|---|---|
-| Absolute date-time with an explicit UTC offset | that instant | best case |
-| Date only (e.g. `2026-09-29`) | `[D 00:00Z − 14h, D+1 00:00Z + 12h)` | covers local calendar day D in any UTC offset (−12…+14); so 24h windows rarely admit date-only evidence, by design |
-| Relative text "N unit ago" | `[T_ret − (N+1)·u, T_ret − max(N−1,0)·u]` | needs a provider-supplied retrieval time `T_ret`; widened to cover floor or round-to-nearest; "month" uses 31d for the lower and 28d for the upper bound. Narrow only after the probe shows actual behaviour |
-| Relative text and **no provider-supplied retrieval time** | none → `unknown_date` | there is **no** "assume the fetch was live" option |
-| Association with the target posting not established | none → `unknown_date` | e.g. the content also lists other jobs ("similar jobs") with their own times, or holds several different time phrases and no structured posting data tied to this job id |
-| "Reposted …", "Updated …", "Active …", "Renewed …", "Be an early applicant" | **not posting evidence** | ignored |
-| Provider `published_date`, freshness filters, crawl/index dates, HTTP `Last-Modified` | **never used** | may narrow a search, never admit a job |
+**Evidence.** It must come from **content the provider returned for that URL** (the quote must be a substring of it). From it we derive the interval `[earliest, latest]` that the posting instant must lie in, **widened to cover every reading we cannot rule out**:
 
-Gate (all on the widened interval): `in_window` iff `earliest ≥ window_start` (the posting is guaranteed not older than the window) **and** the interval is not in the future (`earliest ≤ max(window_end, T_ret)` plus a small clock-skew allowance). `latest < window_start` → `outside`. Interval contains `window_start` → `boundary`. No usable/associated evidence, contradictory evidence, or future-dated evidence → `unknown_date`. Only `in_window` reaches assessment/results; `outside`, `boundary` and `unknown_date` are counted and stored.
+| Evidence | Interval `[earliest, latest]` | Width | Notes |
+|---|---|---|---|
+| Absolute date-time with an explicit UTC offset | that instant | ~0 | best case |
+| Date only (e.g. `2026-09-29`), time zone unknown | `[D 00:00Z − 14h, D+1 00:00Z + 12h]` | **50 h** | covers local calendar day D in any UTC offset (−12…+14) |
+| Date only with a time zone stated in the content | `[D 00:00, D+1 00:00]` in that zone | 24 h | fits a 24h window only if perfectly aligned, i.e. in practice never |
+| Relative text "N unit ago" with a provider-supplied `T_ret` | `[T_ret − (N+1)·u, T_ret − max(N−1,0)·u]` | ≈ 2 units | widened to cover floor or round-to-nearest; "month" uses 31d for the lower and 28d for the upper bound; narrow only after the probe shows actual behaviour |
+| Relative text and **no provider-supplied `T_ret`** | none → `unknown_date` | — | there is **no** "assume the fetch was live" option |
+| Association with the target posting not established | none → `unknown_date` | — | e.g. the content also lists other jobs ("similar jobs") with their own times, or holds several different time phrases and no structured posting data tied to this job id |
+| "Reposted …", "Updated …", "Active …", "Renewed …", "Be an early applicant" | **not posting evidence** | — | ignored |
+| Provider `published_date`, freshness filters, crawl/index dates, HTTP `Last-Modified` | **never used** | — | may narrow a search, never admit a job |
+
+**Gate (on the widened interval, closed window `[window_start, window_end]`):**
+- `in_window` iff `window_start ≤ earliest` **and** `latest ≤ window_end` — the entire interval is inside the window.
+- `outside` iff `latest < window_start`.
+- `boundary` iff the interval overlaps the window without being contained in it.
+- `unknown_date` iff there is no usable, associated evidence; the evidence is contradictory; or `earliest > window_end` (future-dated).
+
+Only `in_window` reaches assessment/results; the other three are counted and stored.
+
+**Consequence: a job can qualify only if the interval width is ≤ the lookback.** Hence time-zone-unknown date-only evidence (50 h) can never qualify for a 24-hour window, and can qualify for longer windows only when the date is far enough back that the whole 50 h interval sits inside. Day-granularity relative text ("1 day ago" ≈ 2 days wide) cannot qualify for 24 h either. For a 24 h lookback, essentially only an explicit time with offset, or "N minutes/hours ago" with a provider-supplied `T_ret` close to `T_gate`, can qualify. If the probe shows the provider returns only day-granularity evidence, strict 24 h results will be empty and the response will say why.
 
 Stored evidence: `jobs` keeps the narrowest *consistent* interval seen across runs (intersection of independent evidence; a posting instant does not change). An empty intersection ⇒ `unknown_date` plus an issue.
 
@@ -115,7 +126,7 @@ Stored evidence: `jobs` keeps the narrowest *consistent* interval seen across ru
 ## 6. Providers and configuration
 Interfaces (already scaffolded in M0): `SearchProvider` (`search(query, max_results) -> hits with url/title/snippet/content/retrieved_at`) and `LLMProvider` (`complete_json`). Both declare `is_paid`. Configuration comes from environment variables or a gitignored config file: provider names, base URLs, API keys, model names, caps. Secrets never enter SQLite, responses or logs.
 
-Requirements on the search provider: restrict results to `linkedin.com`; return page content or enough of it to hold posting-time text; report failures explicitly. Options (docs checked 2026-09-30; none chosen):
+Requirements on the search provider: restrict results to `linkedin.com`; return page content or enough of it to hold posting-time text; report failures explicitly. Discovery queries take the form `site:linkedin.com/jobs/view/ <role or skill terms>` in addition to the domain restriction; whether a provider honours a path-level `site:` is unverified and measured by the probe (share of results that are job-view URLs). Options (docs checked 2026-09-30; none chosen):
 
 | Option | Relevant capabilities | Concerns for this contract |
 |---|---|---|
@@ -146,7 +157,7 @@ WAL mode, one writer at a time (a second concurrent run waits or fails fast with
   2. A paid provider must declare a positive worst-case cost per call (`max_cost_usd`; for LLMs an upper bound from input plus max output tokens). An unpriced paid provider is refused, so an estimate of 0 cannot bypass the ceiling.
   3. The worst case is **reserved before every attempt** and checked against the run ceiling and monthly cap atomically (`BEGIN IMMEDIATE`); a retry is a new attempt with its own reservation.
   4. After the call the reservation is settled to the provider-reported actual cost (e.g. Tavily `usage.credits`). If none is reported, the reserved max is charged.
-  5. A failed call is charged at the reserved max unless the provider error says it was rejected before billable work (`charged=False`, e.g. 401/422/429). Unsettled reservations (crash) keep counting at their reserved max.
+  5. **A failed request is treated as potentially charged**: the reserved max is charged. The only exception is a failure the provider's own documentation says is not billed (`charged=False`, with the doc page cited in the adapter). Tavily's docs list status codes but no billing rule for failed searches, so every Tavily failure is charged; the Extract-only note "failed extractions incur no charges" is not applied to Search. Unsettled reservations (crash) keep counting at their reserved max.
   6. An actual cost above the reservation is recorded and stops the run (`cost_overrun`).
   7. Money is integer micro-USD, rounded up. The USD-per-credit rate for Tavily is the highest listed pay-as-you-go rate ($0.008), so even free-tier calls are treated as paid until you say otherwise.
 - **Retries:** only transient failures (429/5xx/timeouts/connection): ≤2 retries, exponential backoff with jitter, honour `Retry-After`, each retry counts toward the caps. No retry on 401/403/404. Per-provider circuit breaker after 3 consecutive failures. One repair attempt for malformed model JSON, then `assessment_failed` (the job is counted, not silently dropped).
@@ -154,4 +165,7 @@ WAL mode, one writer at a time (a second concurrent run waits or fails fast with
 - **Privacy:** the résumé file is never modified or copied; only its hash and the inferred profile are stored.
 
 ## 9. Status of the scaffold
-Built and kept: `budget.py` + `ledger.py` (monetary guard, rewritten in v3.1), `providers/{base,guard,fake}.py`, `providers/tavily.py` (candidate adapter used by the probe), `linkedin.py` (URL rule), `probe.py` + `scripts/probe_provider.py`, the offline no-network test fixture. Superseded by v3 but **not yet deleted** (untracked files, so deletion would be irreversible; removal waits for your go-ahead): `brief.py`, `plan.py`, `identity.py`, `lifecycle.py`, `urlnorm.py`, the brief-oriented CLI and their tests. The service modules (`service.py`, `window.py`, `posting_time.py`, `assess.py`, `store.py`, `config.py`) are deliberately not started until the probe reports.
+Built: `budget.py` + `ledger.py` (monetary guard), `providers/{base,guard,fake,tavily}.py`, `linkedin.py` (URL rule), `probe.py` + `scripts/probe_provider.py`, `envfile.py`, and an offline test suite that blocks all network access.
+Removed in v3.2 (recoverable from local commit `40f58d7`, tag `checkpoint-before-prune`): `brief.py`, `plan.py`, `identity.py`, `lifecycle.py`, `urlnorm.py`, `models.py` (closure/verification vocabulary), the brief CLI (`cli.py`, `__main__.py`) and their tests. `PyYAML` and the `nemo` console script went with them.
+Left in place, to revisit when the service is built: the `PageFetcher`/`FetchResult`/`GuardedFetcher`/`max_pages` surface, which v3 does not need (content comes from the search provider only, and nothing may fetch linkedin.com).
+Not started, by design, until the probe has been run and its output reviewed: `service.py`, `window.py`, `posting_time.py`, `assess.py`, `store.py`, `config.py`, `schema.py`.

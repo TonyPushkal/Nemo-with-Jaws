@@ -18,8 +18,8 @@ class ProviderError(Exception):
     def __init__(self, kind: str, message: str = "", *, charged: bool = True):
         super().__init__(f"{kind}: {message}" if message else kind)
         self.kind = kind
-        # False only when the provider rejected the request before doing billable work.
-        # Default True: the money guard then charges the reserved maximum.
+        # Failed requests are treated as potentially charged. Pass charged=False ONLY when
+        # the provider's documentation states the failure is not billed.
         self.charged = charged
 
 
@@ -63,6 +63,7 @@ class LLMResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_usd: float = 0.0
+    meta: dict[str, Any] = field(default_factory=dict)  # provider-specific timings/diagnostics
 
 
 @runtime_checkable

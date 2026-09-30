@@ -1,0 +1,59 @@
+{
+ "note": "SYNTHETIC jobs invented for tests; 'expect' lists acceptable outcomes.",
+ "jobs": [
+  {
+   "id": "strong_full",
+   "expect": [
+    "strong_match",
+    "possible_match"
+   ],
+   "text": "Senior Backend Engineer - Fabrikam Cloud\nLocation: Remote (Exampleland)\n\nAbout the role\nWe are hiring a Senior Backend Engineer to design, build and operate the services behind our payments platform. You will own services end to end, from design to production support.\n\nResponsibilities\n- Design and build REST and event-driven services in Python and Go.\n- Own PostgreSQL schemas and tune slow queries.\n- Run services on Kubernetes on AWS; improve reliability, SLOs and on-call practice.\n- Mentor junior engineers and review code.\n\nRequirements\n- 5+ years of professional backend engineering experience.\n- Strong Python; experience with PostgreSQL and message queues.\n- Experience operating production systems on AWS and Kubernetes.\n\nNice to have\n- Terraform, Airflow, or data pipeline experience.\n\nBenefits\nCompetitive salary, remote-first, 25 days holiday, learning budget. Fabrikam Cloud is an equal opportunity employer. We review every application and reply within two weeks. Join a team of 40 engineers building payments infrastructure used by thousands of merchants across the region."
+  },
+  {
+   "id": "possible_partial",
+   "expect": [
+    "possible_match",
+    "strong_match"
+   ],
+   "text": "Data Engineer - Tailspin Data\nWe are looking for a Data Engineer to build and maintain batch pipelines that load data into our Snowflake warehouse. Day to day you will write Python and SQL, schedule jobs in Airflow, and work with analysts to model data. 3+ years of experience required. Spark is a plus. Hybrid, 2 days per week in the Exampleland office."
+  },
+  {
+   "id": "mismatch_full",
+   "expect": [
+    "not_relevant"
+   ],
+   "text": "Registered Nurse - Medical Surgical Unit - Adventure Works Hospital\nLocation: Springfield, Exampleland\n\nThe Registered Nurse provides direct patient care on a 30-bed medical surgical unit. Responsibilities include administering medications, monitoring vital signs, documenting care in the electronic health record, coordinating with physicians and educating patients and families about treatment plans.\n\nRequirements\n- Active RN licence in Exampleland.\n- BLS certification.\n- 1+ years of acute care experience preferred.\n\nWe offer shift differentials, tuition assistance and a sign-on bonus. Night and weekend shifts are required on a rotating basis. Adventure Works Hospital is an equal opportunity employer and welcomes applicants from all backgrounds. Please apply with your licence number and references."
+  },
+  {
+   "id": "thin_ambiguous",
+   "expect": [
+    "insufficient_evidence"
+   ],
+   "text": "Software Engineer at Contoso. Contoso is hiring a Software Engineer. Apply now."
+  },
+  {
+   "id": "thin_mismatch",
+   "expect": [
+    "not_relevant",
+    "insufficient_evidence"
+   ],
+   "text": "Junior Accountant - Fabrikam Ltd. Bookkeeping, accounts payable and month-end close support."
+  },
+  {
+   "id": "seniority_mismatch",
+   "expect": [
+    "not_relevant",
+    "possible_match"
+   ],
+   "text": "Principal Engineer, Platform Architecture - Litware\nLitware seeks a Principal Engineer to set the multi-year technical strategy for a 300-engineer organisation. You will define enterprise architecture standards, chair the architecture review board, represent engineering to the executive team and manage a group of staff-level engineers. 15+ years of experience designing large distributed systems and at least 5 years in an engineering leadership role are required. Deep experience in Java and C++ required. Travel up to 30%."
+  },
+  {
+   "id": "noisy_page_long",
+   "expect": [
+    "strong_match",
+    "possible_match"
+   ],
+   "text": "Sign in to see who you already know at Wingtip Toys\nJoin now | Sign in\n\nSenior Backend Engineer\nWingtip Toys - Springfield, Exampleland\nPosted 2 days ago . Over 100 applicants\n\nAbout the job\nWingtip Toys is looking for a Senior Backend Engineer to work on order processing services written in Python. You will design APIs, tune PostgreSQL queries and deploy on Kubernetes.\n\nSeniority level: Mid-Senior level\nEmployment type: Full-time\n\nSimilar jobs\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago\n\nPeople also viewed\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago\nRegistered Nurse - Adventure Works Hospital - Springfield - 1 day ago\nJunior Accountant - Fabrikam - 3 days ago\nSenior Python Developer - Northwind - 5 days ago\nWarehouse Associate - Contoso - 1 week ago\nData Analyst - Litware - 2 days ago\nBackend Engineer - Tailspin - 4 days ago\nSales Manager - Proseware - 6 days ago"
+  }
+ ]
+}

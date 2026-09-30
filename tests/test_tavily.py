@@ -55,14 +55,13 @@ def test_cost_is_bounded_and_actual_uses_reported_credits():
     assert t.cost_usd_from_response({"results": []}) is None      # no usage -> guard charges the max
 
 
-@pytest.mark.parametrize("code,kind,charged", [(401, "unauthorized", False), (429, "rate_limited", False),
-                                              (432, "plan_limit", False), (422, "bad_request", False),
-                                              (500, "server_error", True)])
-def test_http_errors_are_typed_and_charge_flag_is_set(code, kind, charged):
+@pytest.mark.parametrize("code,kind", [(400, "bad_request"), (401, "unauthorized"), (422, "bad_request"),
+                                       (429, "rate_limited"), (432, "plan_limit"), (433, "plan_limit"),
+                                       (500, "server_error"), (418, "http_error")])
+def test_http_errors_are_typed_and_all_treated_as_potentially_charged(code, kind):
     with pytest.raises(ProviderError) as e:
         TavilySearch("k", opener=Opener(exc=http_error(code))).search_raw("q")
-    assert e.value.kind == kind and e.value.charged is charged
-    assert "k" not in str(e.value).replace("HTTP", "").replace("rate_limited", "").replace("unauthorized", "") or True
+    assert e.value.kind == kind and e.value.charged is True   # no documented not-billed rule
 
 
 def test_timeout_and_bad_json_are_typed_and_charged():

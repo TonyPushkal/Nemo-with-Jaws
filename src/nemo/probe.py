@@ -21,7 +21,18 @@ from nemo.linkedin import linkedin_job_id, path_shape
 from nemo.providers.base import ProviderError
 
 # Generic role families chosen only to exercise the provider. They are NOT the user's preferences.
-FIXED_QUERIES = ["software engineer", "registered nurse", "accountant", "data analyst", "marketing manager"]
+ROLES = ["software engineer", "registered nurse", "accountant", "data analyst", "marketing manager"]
+SITE_PREFIX = "site:linkedin.com/jobs/view/"
+
+
+def build_query(role: str) -> str:
+    """Target individual postings. Whether the provider honours `site:` with a path is itself
+    something the probe measures (share of results that are job-view URLs)."""
+    role = role.strip()
+    return role if role.lower().startswith("site:") else f"{SITE_PREFIX} {role}"
+
+
+FIXED_QUERIES = [build_query(r) for r in ROLES]
 
 _MONTHS = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?"
 _PATTERNS: list[tuple[str, re.Pattern]] = [

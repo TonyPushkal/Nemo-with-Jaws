@@ -1,5 +1,15 @@
 # Phase 1 — Decisions, Assumptions, Open Questions (v3)
 
+## Model hosting decided (after v3.2)
+Local Ollama, `qwen3.5:4b`, 4,096-token context, one request at a time, on this 8 GB M1. Built: `providers/ollama.py` (adapter, `think` off, context preflight, sequential), `tasks.py` (résumé → profile, job → match with code-side quote grounding and outcome rules), `scripts/local_model_check.py`. Measurements and caveats are in `06-local-model-findings.md`; the main ones are memory pressure on 8 GB, ~10–20 s per call, and that only synthetic content has been tested.
+
+## What changed in v3.2 (your latest corrections)
+1. **Date gate:** the *entire* posting-time interval must lie inside the requested window (doc 03 §4). Documented consequence: time-zone-unknown date-only evidence (a 50-hour interval) cannot qualify for a 24-hour window, nor can day-granularity evidence in general.
+2. **Failed requests are potentially charged** unless the provider documents otherwise. My v3.1 adapter assumed 400/401/422/429/432/433 were free from the status-code table; Tavily documents no such rule, so that assumption is removed and every Tavily failure is charged at the reserved maximum.
+3. **Probe queries** are now `site:linkedin.com/jobs/view/ <role>` for the same five generic roles, to target individual postings.
+4. **Superseded modules removed** after a local checkpoint (commit `40f58d7`, tag `checkpoint-before-prune`): brief, query planner, merge/closure rules, URL normaliser, job vocabulary, brief CLI and their tests. I also removed `models.py` (closure/verification vocabulary), which you had not listed by name but which only served those modules; it is in the checkpoint if you want it back.
+5. **Probe prepared for local use:** `.env`-based key, confirmation prompt, refusal without key/budget. After you run it we review the real returned content and dates before implementing the rest of the service. Model hosting remains undecided.
+
 ## What changed in v3.1 (your corrections)
 1. **Uncertain-date admission fixed.** The draft admitted date-only values as UTC and allowed an "assume live fetch" flag for relative dates; both could admit a job whose real posting time was outside the window. Now the interval is widened for time zone and rounding, relative text without a provider-supplied retrieval time is `unknown_date`, the assume-live option is gone, and dates whose association with the target job is unclear never admit (doc 03 §4).
 2. **Insufficient evidence ≠ irrelevance.** Five outcomes; `not_relevant` needs a quoted mismatch; thin or ungrounded cases go to a separate `unassessed` list with a reason (doc 03 §5).
@@ -25,7 +35,7 @@
 
 ## Decisions I made (change any)
 - Strict gate = the posting is *guaranteed* inside the window on the widened interval; coarser evidence goes to `boundary`, counted and stored, not returned.
-- Date-only evidence is widened by ±the extreme UTC offsets; relative dates ("N days ago") count only with a provider-supplied retrieval time. No opt-in to assume one.
+- Date-only evidence with unknown time zone is a 50-hour interval and so cannot qualify for windows shorter than that; relative dates ("N days ago") count only with a provider-supplied retrieval time. No opt-in to assume one.
 - `unassessed` jobs (insufficient evidence, failed, out of budget) are returned in a separate list rather than dropped.
 - "Reposted/Updated/Active" text and provider `published_date` are never posting evidence.
 - Location is reported, not filtered.
@@ -40,13 +50,12 @@
 - LinkedIn's wording ("N hours/days ago", "Reposted …") behaves as described in 03 §4.
 - Provider-side retrieval of LinkedIn pages is acceptable to you; LinkedIn's terms prohibit scraping and providers may refuse or block it. We add no workaround.
 - Default caps in 03 §8 are starting points.
-- Tavily's $0.008/credit (highest listed pay-as-you-go rate) is used as the worst-case price; its response reports `usage.credits`, which the guard uses to settle actual cost. Error-code charging (`401/422/429/432/433` = not charged) is an assumption from the docs' status table, not a stated billing rule; the guard errs conservative elsewhere.
+- Tavily's $0.008/credit (highest listed pay-as-you-go rate) is used as the worst-case price; its response reports `usage.credits`, which the guard uses to settle actual cost. Failed requests are charged at the reserved maximum (no Tavily billing rule for failures is documented).
 
 ## Open questions
-1. **Probe provider and budget:** the only adapter written is Tavily (its raw-content option fits the contract). To run the probe I need `TAVILY_API_KEY` plus a small budget you set yourself (about $0.10 covers the default 5 queries at `basic`). Would you rather probe a different provider first? The LLM provider (hosted or self-hosted, and hardware if local) is not needed until after the probe.
-1b. **Probe queries:** the 5 fixed queries are generic role families, not your preferences. Keep them, or give me a queries file?
+1. **Probe run (yours):** supply `TAVILY_API_KEY` and a small budget locally (about $0.10 covers the default 5 queries at `basic`), run the probe, and tell me the output folder name; I will read the raw returned descriptions and dates with you. Would you rather probe a different provider first? The LLM provider is now local Ollama `qwen3.5:4b` (see above).
 2. **Location:** résumé location as a search hint/filter, or leave unconstrained (proposed) and just report location?
-3. **Privacy:** are you comfortable sending résumé text to a hosted LLM, or should M1 require a self-hosted model?
+3. **Privacy:** resolved by the local model: résumé text stays on this machine.
 4. **Monthly budget:** still unset, so paid calls stay disabled until you provide one.
 5. **Lookback bounds:** proposed min 1h, max 30d; adequate?
 6. **Résumé formats:** PDF and DOCX support adds two small libraries; OK, or text/Markdown only at first?

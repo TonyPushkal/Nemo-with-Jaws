@@ -18,8 +18,10 @@ from nemo.providers.base import Hit, ProviderError
 
 URL = "https://api.tavily.com/search"
 CREDITS_PER_CALL = {"basic": 1, "fast": 1, "ultra-fast": 1, "advanced": 2}
-# 400/401/422/429/432/433 are rejections before search work; 5xx/timeouts may still bill.
-_NOT_CHARGED = {400, 401, 422, 429, 432, 433}
+# Tavily's docs list status codes but state no billing rule for failed requests, so EVERY
+# failure is treated as potentially charged (ProviderError.charged defaults to True). Only
+# add a code here if Tavily documents that it is not billed, and cite the page.
+_DOCUMENTED_NOT_CHARGED: frozenset[int] = frozenset()
 _KIND = {400: "bad_request", 401: "unauthorized", 422: "bad_request", 429: "rate_limited",
          432: "plan_limit", 433: "plan_limit"}
 
@@ -59,7 +61,7 @@ class TavilySearch:
                 raw = json.load(resp)
         except urllib.error.HTTPError as exc:
             raise ProviderError(_KIND.get(exc.code, "server_error" if exc.code >= 500 else "http_error"),
-                                f"HTTP {exc.code}", charged=exc.code not in _NOT_CHARGED) from None
+                                f"HTTP {exc.code}", charged=exc.code not in _DOCUMENTED_NOT_CHARGED) from None
         except (TimeoutError, socket.timeout):
             raise ProviderError("timeout", "request timed out") from None
         except urllib.error.URLError as exc:

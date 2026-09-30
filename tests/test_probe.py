@@ -4,7 +4,7 @@ import pytest
 
 from nemo.budget import Budget, BudgetConfig, PaidCallsDisabled
 from nemo.ledger import InMemoryLedger
-from nemo.probe import FIXED_QUERIES, analyze_result, render_markdown, run_probe, scan_time_mentions, summarize
+from nemo.probe import FIXED_QUERIES, analyze_result, build_query, render_markdown, run_probe, scan_time_mentions, summarize
 from nemo.providers.base import ProviderError
 
 JOB = "https://www.linkedin.com/jobs/view/widget-engineer-at-acme-3812345678"
@@ -100,6 +100,14 @@ def test_run_probe_stops_when_reservation_would_exceed_run_ceiling(tmp_path):
     assert len(p.calls) == 5 and s["meta"]["stopped_by_cap"] == "max_usd_per_run"
 
 
-def test_fixed_queries_are_generic_and_render_is_stable():
+def test_fixed_queries_are_generic_and_target_individual_postings():
     assert len(FIXED_QUERIES) == 5 and len(set(FIXED_QUERIES)) == 5
+    assert all(q.startswith("site:linkedin.com/jobs/view/ ") for q in FIXED_QUERIES)
+    assert [q.split("/ ", 1)[1] for q in FIXED_QUERIES] == ["software engineer", "registered nurse", "accountant",
+                                                            "data analyst", "marketing manager"]
+    assert build_query("nurse") == "site:linkedin.com/jobs/view/ nurse"
+    assert build_query("site:linkedin.com/jobs/view/ nurse") == "site:linkedin.com/jobs/view/ nurse"
+
+
+def test_render_is_stable():
     assert render_markdown({"meta": {}, "counts": summarize([]), "queries": []}).startswith("# Provider feasibility probe")
