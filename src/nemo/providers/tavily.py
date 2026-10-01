@@ -32,12 +32,16 @@ class TavilySearch:
 
     def __init__(self, api_key: str, *, search_depth: str = "basic",
                  include_domains: tuple[str, ...] = ("linkedin.com",),
-                 include_raw_content: str | bool = "text", credit_usd: str = "0.008",
+                 include_raw_content: str | bool = "text", country: str | None = None,
+                 chunks_per_source: int | None = None, credit_usd: str = "0.008",
                  timeout: float = 30.0, opener: Callable[..., Any] | None = None):
         if search_depth not in CREDITS_PER_CALL:
             raise ValueError(f"unknown search_depth {search_depth!r}")
         self._key, self.search_depth = api_key, search_depth
         self.include_domains, self.include_raw_content = include_domains, include_raw_content
+        # `country` boosts (does not filter) results from that country; `chunks_per_source` applies to
+        # advanced depth. Both documented on docs.tavily.com (checked 2026-09-30).
+        self.country, self.chunks_per_source = country, chunks_per_source
         self._credit_usd, self._timeout = float(credit_usd), timeout
         self._open = opener or urllib.request.urlopen
         self.last_call_cost_usd: float | None = None
@@ -47,9 +51,16 @@ class TavilySearch:
         return CREDITS_PER_CALL[self.search_depth] * self._credit_usd
 
     def request_body(self, query: str, max_results: int) -> dict[str, Any]:
-        return {"query": query, "search_depth": self.search_depth, "max_results": max_results,
+        """Tavily does not document `site:` operators and the 2026-09-30 probe showed the echoed query
+        without them, so domain/path restriction goes in `include_domains` only."""
+        body = {"query": query, "search_depth": self.search_depth, "max_results": max_results,
                 "include_domains": list(self.include_domains),
                 "include_raw_content": self.include_raw_content, "include_usage": True}
+        if self.country:
+            body["country"] = self.country
+        if self.chunks_per_source is not None:
+            body["chunks_per_source"] = self.chunks_per_source
+        return body
 
     def search_raw(self, query: str, *, max_results: int = 10) -> dict[str, Any]:
         req = urllib.request.Request(

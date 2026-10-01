@@ -25,6 +25,11 @@ def test_scan_finds_kinds_and_qualifiers():
     assert iso_in_ld == []      # not double-counted
 
 
+def test_scan_finds_year_and_second_units():
+    kinds = [m['text'] for m in scan_time_mentions('Plano, TX 1 year ago. Posted 30 seconds ago')]
+    assert kinds == ['1 year ago', '30 seconds ago']
+
+
 def test_analyze_flags_login_wall_similar_jobs_and_provider_date_is_only_recorded():
     a = analyze_result(result(raw="Sign in to see more. Similar jobs: Nurse 2 days ago", published_date="Tue, 11 Mar 2025 17:00:00 GMT"))
     assert a["job_id"] == "3812345678" and a["login_wall_text"] and a["similar_jobs_text"]
