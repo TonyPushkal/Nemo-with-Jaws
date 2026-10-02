@@ -40,6 +40,15 @@ def test_request_shape_auth_and_linkedin_restriction():
     assert timeout == 30.0
 
 
+def test_optional_country_and_chunks_are_sent_only_when_set():
+    op = Opener(OK)
+    TavilySearch("k", search_depth="advanced", include_domains=("linkedin.com/jobs/view",), country="india",
+                 chunks_per_source=3, opener=op).search_raw("Platform Engineer Bengaluru")
+    body = json.loads(op.requests[0][0].data)
+    assert body["include_domains"] == ["linkedin.com/jobs/view"] and body["country"] == "india"
+    assert body["chunks_per_source"] == 3 and body["search_depth"] == "advanced"
+
+
 def test_search_maps_hits_and_keeps_provider_date_as_hint_only():
     hits = TavilySearch("k", opener=Opener(OK)).search("q")
     assert hits[0].content == "full page" and hits[0].snippet == "snip"

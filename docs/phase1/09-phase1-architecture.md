@@ -8,7 +8,7 @@ Phase 1 is **one service and one SQLite database.** You give it search inputs. I
 
 A useful result: most top jobs fit your target roles, every job keeps its description and links, and anything excluded or not searched is visible.
 
-Out of scope: résumé tailoring (Phase 2), applying, new scraping providers, provider fallback. **Bright Data code stays dormant.** Phase 2 will read only what Phase 1 saves: description, links, provenance and the match assessment.
+Out of scope: résumé tailoring (Phase 2), applying, new scraping providers, provider fallback. Only SerpApi is used; no other provider account or setup is required. Phase 2 will read only what Phase 1 saves: description, links, provenance and the match assessment.
 
 ## 2. What exists today
 

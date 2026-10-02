@@ -37,7 +37,7 @@ FIXED_QUERIES = [build_query(r) for r in ROLES]
 _MONTHS = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?"
 _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("structured_datePosted", re.compile(r'"datePosted"\s*:\s*"([^"]+)"')),
-    ("relative", re.compile(r"\b(\d{1,3})\s*(minute|hour|day|week|month)s?\s+ago\b", re.I)),
+    ("relative", re.compile(r"\b(\d{1,3})\s*(second|minute|hour|day|week|month|year)s?\s+ago\b", re.I)),
     ("long_date", re.compile(rf"\b(?:posted|listed)\s+(?:on\s+)?({_MONTHS}\s+\d{{1,2}},?\s+20\d{{2}})", re.I)),
     ("iso_date", re.compile(r"\b(20\d{2}-\d{2}-\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b")),
 ]

@@ -19,3 +19,7 @@ build/
 dist/
 .DS_Store
 probe_out/
+
+# Personal job profiles
+job-profile.md
+profiles/
