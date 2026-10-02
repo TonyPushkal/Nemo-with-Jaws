@@ -1,5 +1,7 @@
 # Phase 1 — Architecture (v3)
 
+> **Note (2026-10-02):** partly superseded by [09 Phase 1 architecture](09-phase1-architecture.md): the working approach is SerpApi search with ranked results, and the strict posting-date gate below is not built.
+
 Status: DRAFT v3.2 (entire-interval date gate; failed requests treated as potentially charged; superseded v2 modules removed). Plain Python 3.12, one process, SQLite, a fixed pipeline. No agent framework, no loops beyond bounded retries.
 
 ## 1. Data flow

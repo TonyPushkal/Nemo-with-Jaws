@@ -1,5 +1,7 @@
 # Phase 1 — Scope (v3.3: job profile → LinkedIn postings contract)
 
+> **Note (2026-10-02):** partly superseded by [09 Phase 1 architecture](09-phase1-architecture.md): the working approach is SerpApi search with ranked results, and the strict posting-date gate below is not built.
+
 Status: DRAFT v3.3. v3.3 replaces the résumé input with a UTF-8 Markdown/text **job profile** (résumé input deferred). Lookback filtering, LinkedIn-only output, matching outcomes and SQLite history are unchanged from v3.2. Built so far: monetary guard, Tavily adapter + feasibility probe, local model adapter, profile parser, matcher. The search service is not.
 
 ## The contract
