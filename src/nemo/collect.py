@@ -113,7 +113,7 @@ def get_run(run_id: str, store: CollectStore, *, limit: int = 50, include_raw: b
 
 def _hint(exc: ProviderError) -> str:
     return {"unauthorized": " (check BRIGHTDATA_API_KEY)", "not_found": " (dataset id or snapshot not found)",
-            "bad_request": " (the provider rejected the input; check roles/locations/time_range)",
+            "bad_request": " (rejected by the provider: read the message above; it can be an inactive account or invalid input)",
             "rate_limited": " (concurrency limit; wait and retry later)"}.get(exc.kind, "")
 
 

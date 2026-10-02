@@ -77,7 +77,11 @@ class BrightDataJobs:
         except urllib.error.HTTPError as exc:
             kind = {400: "bad_request", 401: "unauthorized", 404: "not_found", 429: "rate_limited"}.get(
                 exc.code, "server_error" if exc.code >= 500 else "http_error")
-            raise ProviderError(kind, f"HTTP {exc.code}", charged=False) from None
+            try:
+                detail = exc.read().decode("utf-8", "replace").replace(self._key, "REDACTED")[:300]
+            except Exception:  # noqa: BLE001
+                detail = ""
+            raise ProviderError(kind, f"HTTP {exc.code}" + (f": {detail}" if detail else ""), charged=False) from None
         except (TimeoutError, socket.timeout):
             raise ProviderError("timeout", "request timed out") from None
         except urllib.error.URLError as exc:
