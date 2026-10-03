@@ -1,0 +1,14 @@
+[
+  {"label": "backend",         "engine": "google_jobs", "q": "Backend Engineer 0-2 years",  "location": "Hyderabad,Telangana,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "DevOps Engineer 0-2 years",   "location": "Bengaluru,Karnataka,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "Backend Engineer",            "location": "Bengaluru,Karnataka,India"},
+  {"label": "testing",         "engine": "google_jobs", "q": "SDET 0-2 years",              "location": "Bengaluru,Karnataka,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "Junior DevOps Engineer",      "location": "Hyderabad,Telangana,India"},
+  {"label": "ai",              "engine": "google_jobs", "q": "AI Engineer 0-2 years",       "location": "Bengaluru,Karnataka,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "SDE I",                       "location": "Hyderabad,Telangana,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "Cloud Engineer",              "location": "Bengaluru,Karnataka,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "Software Engineer I",         "location": "Hyderabad,Telangana,India"},
+  {"label": "testing",         "engine": "google_jobs", "q": "Software Engineer in Test",   "location": "Hyderabad,Telangana,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "SDE",                         "location": "Bengaluru,Karnataka,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "Site Reliability Engineer",   "location": "Hyderabad,Telangana,India"}
+]

@@ -48,7 +48,7 @@ def test_bullets_numbering_continuations_comments_and_dedup():
     (MIN.replace("## Must-haves", "## Must-haves\nPython"), "one item per bullet"),
     (MIN.replace("## Must-haves", "## Must-haves\n- Remote").replace("## Exclusions", "## Exclusions\n- remote"),
      "same item in must_haves and exclusions"),
-    (MIN.replace("## Must-haves", "## Must-haves\n" + "".join(f"- item {i}\n" for i in range(7))), "at most 6"),
+    (MIN.replace("## Must-haves", "## Must-haves\n" + "".join(f"- item {i}\n" for i in range(9))), "at most 8"),
     (MIN.replace("## Must-haves", "## Must-haves\n- " + "x" * 200), "longer than"),
     (MIN.replace("## Desired roles", "### Desired roles"), "unknown heading"),
     (MIN.replace("Did things.", "x " * 590).replace("## Must-haves", "## Must-haves\n" + "".join(f"- {'y' * 150} {i}\n" for i in range(6)))

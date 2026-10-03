@@ -53,7 +53,16 @@ class Store:
             for jid, j in jobs.items():
                 row = self.db.execute("SELECT first_seen_at, first_seen_run FROM jobs WHERE linkedin_job_id=?",
                                       (jid,)).fetchone()
-                if row:
+                legacy_row = None
+                if not row and j.get("legacy_key"):      # stored before the identity fix: link history, leave the old row as is
+                    legacy_row = self.db.execute("SELECT first_seen_at, first_seen_run FROM jobs WHERE linkedin_job_id=?",
+                                                 (j["legacy_key"],)).fetchone()
+                if legacy_row:
+                    j["first_seen_at"], j["first_seen_run"], j["previously_seen"] = legacy_row[0], legacy_row[1], legacy_row[1] != run_id
+                    self.db.execute("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                    (jid, j["url"], j["title"], j["company"], j["location"], j["description"],
+                                     legacy_row[0], legacy_row[1], seen_at, run_id, json.dumps(j, ensure_ascii=False)))
+                elif row:
                     j["first_seen_at"], j["first_seen_run"], j["previously_seen"] = row[0], row[1], row[1] != run_id
                     self.db.execute(
                         "UPDATE jobs SET url=?, title=COALESCE(?, title), company=COALESCE(?, company), "

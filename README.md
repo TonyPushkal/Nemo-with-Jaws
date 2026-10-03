@@ -30,10 +30,10 @@ cp .env.example .env                                         # then fill in your
 Discovery run (Phase 1; SerpApi key and budget in `.env`):
 
 ```bash
-.venv/bin/python scripts/run_search.py --profile job-profile.md --lookback 7d \
-  --location "Bengaluru,Karnataka,India" --location "Hyderabad,Telangana,India" \
-  --location "Visakhapatnam,Andhra Pradesh,India" --gl in          # add --dry-run to preview, --assess for optional local-model notes
+.venv/bin/python scripts/run_search.py --profile job-profile.md --lookback 7d --gl in   # cities from config default_locations (Bengaluru, Hyderabad); add --dry-run to preview, --assess for optional local-model notes
 ```
+
+Searches come from `config/search_terms.json` (role families, early-career aliases, plain roles; `--search-config` to override, `--plain-roles` to search desired roles as written). `--dry-run` shows the query order, locations and which searches fit `--max-searches`; `--offset N` runs the next batch of a capped plan; `--screen` also writes `report.md` (per-query results, screening, application links). Jobs without a LinkedIn link are kept with their application links. Screen saved results (no network): `.venv/bin/python scripts/screen_results.py`.
 
 Results go to `runs/<run-id>/` (`summary.md`, `results.csv`, `results.json`, `raw/`) and `data/nemo.sqlite`; both are gitignored. Reported posting ages are Google's unverified claims; nothing is filtered by date or fit.
 

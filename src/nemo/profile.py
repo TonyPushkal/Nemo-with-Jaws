@@ -30,7 +30,7 @@ SECTIONS = {
 }
 _ALIAS = {alias: key for key, aliases in SECTIONS.items() for alias in aliases}
 
-MAX_ROLES, MAX_CRITERIA, MAX_ITEM_CHARS, MAX_EXPERIENCE_CHARS = 8, 6, 160, 1200
+MAX_ROLES, MAX_CRITERIA, MAX_ITEM_CHARS, MAX_EXPERIENCE_CHARS = 8, 8, 160, 1200
 MAX_FILE_BYTES = 64_000
 MAX_PROFILE_CHARS = 2500  # leaves room for job text in a 4,096-token context
 

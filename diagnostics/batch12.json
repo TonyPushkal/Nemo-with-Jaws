@@ -1,0 +1,14 @@
+[
+  {"label": "backend",         "engine": "google_jobs", "q": "Software Development Engineer I", "location": "Hyderabad,Telangana,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "Junior DevOps Engineer",           "location": "Bengaluru,Karnataka,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "Software Engineer I",              "location": "Bengaluru,Karnataka,India"},
+  {"label": "testing",         "engine": "google_jobs", "q": "SDET I",                           "location": "Hyderabad,Telangana,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "DevOps Engineer",                  "location": "Hyderabad,Telangana,India"},
+  {"label": "ai",              "engine": "google_jobs", "q": "Junior AI Engineer",               "location": "Bengaluru,Karnataka,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "Backend Engineer",                 "location": "Visakhapatnam,Andhra Pradesh,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "Backend Engineer",                 "location": "Hyderabad,Telangana,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "Platform Engineer",                "location": "Hyderabad,Telangana,India"},
+  {"label": "backend",         "engine": "google_jobs", "q": "Backend Engineer 0-2 years",       "location": "Bengaluru,Karnataka,India"},
+  {"label": "devops_platform", "engine": "google_jobs", "q": "DevOps Engineer",                  "location": "Visakhapatnam,Andhra Pradesh,India"},
+  {"label": "testing",         "engine": "google_jobs", "q": "Software Engineer in Test",        "location": "Bengaluru,Karnataka,India"}
+]
