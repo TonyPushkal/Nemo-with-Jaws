@@ -1,4 +1,7 @@
+import collections
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -154,25 +157,21 @@ def test_store_first_last_seen_and_history_does_not_hide(tmp_path):
 
 
 def test_search_plan_round_robins_families_and_locations_under_a_small_budget():
-    import json
     from nemo.profile import parse_profile
     from nemo.queryplan import DEFAULT_CONFIG, build_plan, load_config, select_families
-    prof = parse_profile("## Experience\nx\n\n## Desired roles\n- Backend Engineer\n- DevOps Engineer\n- SDET\n- AI Platform Engineer\n"
-                         "- Quantum Gardener\n\n## Must-haves\n\n## Nice-to-haves\n\n## Exclusions\n")
+    prof = parse_profile("## Experience\nx\n\n## Desired roles\n- Backend Engineer\n- Software Development Engineer\n- Quantum Gardener\n\n"
+                         "## Must-haves\n\n## Nice-to-haves\n\n## Exclusions\n")
     cfg = load_config(DEFAULT_CONFIG)
-    assert [f for f, _ in select_families(prof.desired_roles, cfg)] == ["backend", "devops_platform", "testing", "ai", "other"]
-    locs = ["Bengaluru,Karnataka,India", "Hyderabad,Telangana,India", "Visakhapatnam,Andhra Pradesh,India"]
+    assert [f for f, _ in select_families(prof.desired_roles, cfg)] == ["backend", "sde", "other"]
+    locs = ["Bengaluru,Karnataka,India", "Hyderabad,Telangana,India"]
     steps = build_plan(prof.desired_roles, locs, timedelta(days=7), "in", cfg)
-    unpinned = build_plan(prof.desired_roles, locs, timedelta(days=7), "in", {**cfg, "priority": []})
-    first5 = unpinned[:5]
-    assert [s.role for s in first5] == ["backend", "devops_platform", "testing", "ai", "other"]       # every family before repeats
-    assert len({s.params["location"] for s in unpinned[:3]}) == 3                                     # not all one city
+    assert [s.role for s in steps[:3]] == ["backend", "sde", "other"]                                # every family before repeats
+    assert len({s.params["location"] for s in steps[:2]}) == 2                                       # not all one city
     pairs = [(s.params["q"], s.params["location"]) for s in steps]
-    assert sorted(pairs) == sorted((s.params["q"], s.params["location"]) for s in unpinned)           # pins only reorder
-    assert len(pairs) == len(set(pairs)) == len({q for q, _ in pairs}) * 3                           # every query in every location, once
+    assert len(pairs) == len(set(pairs)) == len({q for q, _ in pairs}) * 2                           # every query in every city, once
     qs = {q for q, _ in pairs}
-    assert {"Backend Engineer", "DevOps Engineer", "SDET", "Quantum Gardener"} <= qs                 # plain-role searches retained
-    assert {"SDE I", "Associate DevOps Engineer", "SDET I", "Junior AI Engineer"} <= qs              # natural early-career aliases
+    assert {"Backend Engineer", "Software Engineer", "Quantum Gardener"} <= qs                       # plain-role searches retained
+    assert {"SDE I", "Software Development Engineer I", "Junior Backend Engineer"} <= qs             # natural early-career aliases
     assert not any("junior Backend" in q or "Backend Engineer fresher" in q for q in qs)             # no mechanical prefix/suffix
     assert all(s.engine == "google_jobs" for s in steps)                                              # site search is off by default
     with_site = build_plan(prof.desired_roles, locs, timedelta(days=7), "in", {**cfg, "include_site_search": True})
@@ -192,23 +191,23 @@ BENCH_LOCS = ["Bengaluru,Karnataka,India", "Hyderabad,Telangana,India", "Visakha
 def bench_plan(locs=BENCH_LOCS):
     from nemo.profile import parse_profile
     from nemo.queryplan import build_plan, load_config
-    prof = parse_profile("## Experience\nx\n\n## Desired roles\n- Backend Engineer\n- DevOps Engineer\n- SDET\n- AI Platform Engineer\n\n"
+    prof = parse_profile("## Experience\nx\n\n## Desired roles\n- Backend Engineer\n- Software Development Engineer\n\n"
                          "## Must-haves\n\n## Nice-to-haves\n\n## Exclusions\n")
-    return build_plan(prof.desired_roles, locs, timedelta(days=7), "in", load_config())
+    cfg = {**load_config(), "priority": [{"q": "SDE I", "city": "Bengaluru"}, {"q": "Backend Engineer", "city": "Hyderabad"},
+                                          {"q": "Python Backend Engineer", "city": "Bengaluru"}, {"q": "SDE", "city": "Hyderabad"}]}
+    return build_plan(prof.desired_roles, locs, timedelta(days=7), "in", cfg)
 
 
-def test_first_four_benchmark_queries_are_pinned_and_the_plan_is_deterministic():
+def test_pinned_queries_run_first_the_plan_is_deterministic_and_pins_only_reorder():
     a, b = bench_plan(), bench_plan()
     first = [(s.params["q"], s.params["location"].split(",")[0]) for s in a[:4]]
-    assert first == [("SDE I", "Bengaluru"), ("Associate DevOps Engineer", "Hyderabad"), ("SDET I", "Bengaluru"),
-                     ("Junior AI Engineer", "Hyderabad")]
+    assert first == [("SDE I", "Bengaluru"), ("Backend Engineer", "Hyderabad"), ("Python Backend Engineer", "Bengaluru"), ("SDE", "Hyderabad")]
     assert [s.params for s in a] == [s.params for s in b]                       # repeated capped runs run the same first queries
     rest = {(s.params["q"], s.params["location"].split(",")[0]) for s in a[4:]}
-    assert ("SDE I", "Visakhapatnam") in rest and ("Backend Engineer", "Bengaluru") in rest   # wider plan keeps everything
+    assert ("SDE I", "Visakhapatnam") in rest and ("Software Engineer", "Bengaluru") in rest   # configured cities keep everything
     assert not any(q == "SDE I" and c == "Bengaluru" for q, c in rest)                         # pinned pair not repeated
-    # pins are skipped (not invented) when a pinned city is not configured
     no_hyd = bench_plan(["Bengaluru,Karnataka,India", "Visakhapatnam,Andhra Pradesh,India"])
-    assert [s.params["q"] for s in no_hyd[:2]] == ["SDE I", "SDET I"]
+    assert [s.params["q"] for s in no_hyd[:2]] == ["SDE I", "Python Backend Engineer"]         # pins for unconfigured cities are skipped
 
 
 def test_queries_file_gives_explicit_steps_and_web_searches_have_no_freshness(tmp_path):
@@ -303,3 +302,41 @@ def test_history_compatibility_legacy_key_links_old_rows_without_touching_them(t
     assert set(rows) == {legacy, new} and rows[legacy][2] == "r1"          # old row untouched, new row added
     plain = job_key(None, {"url": "https://alion.io/job/arintra-sde-i?utm_source=g"}, None)      # no query string: key unchanged
     assert plain == job_key(None, {"url": "https://alion.io/job/arintra-sde-i"}, None, legacy=True)
+
+
+def test_search_config_targets_only_sde_and_backend_and_the_next_batch_fits_twelve_attempts():
+    import json
+    from nemo.queryplan import DEFAULT_CONFIG, build_plan, load_config, load_queries_file
+    from nemo.profile import parse_profile
+    cfg = load_config(DEFAULT_CONFIG)
+    assert set(cfg["families"]) == {"sde", "backend"} and cfg["priority"] == []
+    qs = [q["q"] for fam in cfg["families"].values() for q in fam["queries"]]
+    banned = ("devops", "sre", "site reliability", "platform", "cloud", "sdet", "qa", "test", "ai ", "ml ")
+    assert not [q for q in qs if any(b in q.lower() + " " for b in banned)]
+    assert {"SDE I", "SDE", "Software Engineer", "Software Engineer I", "Software Development Engineer I", "Backend Engineer",
+            "Backend Developer", "Python Backend Engineer"} <= set(qs)
+    prof = parse_profile("## Experience\nx\n\n## Desired roles\n- Backend Engineer\n- Software Development Engineer\n- Software Engineer\n\n"
+                         "## Must-haves\n\n## Nice-to-haves\n\n## Exclusions\n")
+    plan = build_plan(prof.desired_roles, cfg["default_locations"], timedelta(days=7), "in", cfg)
+    assert {s.role for s in plan} == {"sde", "backend"} and len(plan) == len(qs) * 2          # no full role x city explosion beyond 2 cities
+    batch = load_queries_file(Path(__file__).parent.parent / "diagnostics" / "batch-sde-backend-12.json", "in")
+    assert len(batch) == 12 and sum(s.page == 1 for s in batch) == 10 and sum(s.page == 2 for s in batch) == 2
+    first = [s for s in batch if s.page == 1]
+    assert collections.Counter(s.params["location"].split(",")[0] for s in first) == {"Bengaluru": 5, "Hyderabad": 5}
+    assert all("Visakhapatnam" not in s.params["location"] for s in batch)
+    pairs = [(s.params["q"], s.params["location"]) for s in first]
+    assert len(set(pairs)) == 10                                                                 # distinct first-page requests
+    assert [(batch[i].params["q"], batch[i].page) for i in (0, 1)] == [("Backend Engineer 0-2 years", 1), ("Backend Engineer 0-2 years", 2)]
+    assert [(batch[i].params["q"], batch[i].page) for i in (2, 3)] == [("Backend Engineer", 1), ("Backend Engineer", 2)]   # pages on the promising queries
+    qualified = {s.params["q"] for s in first if re.search(r"0-2|junior|SDE I$", s.params["q"], re.I)}
+    assert len(qualified) >= 3 and {"Backend Engineer", "Software Engineer", "SDE"} <= {s.params["q"] for s in first}   # broad and experience-qualified mix
+
+
+def test_google_employment_type_is_captured_from_extensions_and_kept_through_merge():
+    j1 = job("Backend Engineer", "Acme", "backend-engineer-at-acme-4470000001", ext=("2 days ago", "Full–time"))
+    j2 = job("Backend Intern", "Beta", "backend-intern-at-beta-4470000002", ext=("3 days ago", "Internship"))
+    j3 = job("Backend Engineer", "Gamma", "backend-engineer-at-gamma-4470000003", ext=("3 days ago", "Work from home"))
+    kept, _, _, _ = parse_google_jobs(jobs_raw(j1, j2, j3), WIN)
+    assert [k.schedule for k in kept] == ["Full–time", "Internship", None]                      # unknown stays None, never assumed
+    merged = merge(kept)
+    assert merged["4470000001"]["schedule_type"] == "Full–time" and merged["4470000003"]["schedule_type"] is None

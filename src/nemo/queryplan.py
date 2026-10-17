@@ -100,10 +100,17 @@ def load_queries_file(path: Path | str, gl: str | None) -> list[Step]:
         engine, q = it.get("engine"), (it.get("q") or "").strip()
         if engine not in ("google_jobs", "google") or not q:
             raise ValueError(f"search {i}: needs engine google_jobs|google and a non-empty q")
+        pages = int(it.get("pages", 1))
+        if not 1 <= pages <= 3 or (pages > 1 and engine != "google_jobs"):
+            raise ValueError(f"search {i}: pages must be 1-3 and only applies to google_jobs")
         if engine == "google_jobs":
             if not it.get("location"):
                 raise ValueError(f"search {i}: google_jobs needs a location")
             params = {"q": q, "location": it["location"], **common}
+            if pages > 1:    # each page is its own planned request; page k>1 gets its token from page k-1's response at run time
+                label = it.get("label") or f"query {i}"
+                steps += [Step(engine, f"{label} (page {k})", dict(params), k) for k in range(1, pages + 1)]
+                continue
         else:
             params = {"q": q, "num": str(it.get("num", 10)), **common, **({"tbs": it["tbs"]} if it.get("tbs") else {})}
         steps.append(Step(engine, it.get("label") or f"query {i}", params))

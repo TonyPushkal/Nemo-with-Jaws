@@ -22,6 +22,7 @@ from pathlib import Path
 from nemo.discovery import choose_application_link, job_key
 from nemo.linkedin import linkedin_job_id
 from nemo.profile import ProfileError, load_profile
+from nemo.queryplan import load_config
 from nemo.runreport import job_record, screening_sections
 from nemo.screening import FULL_TIME_MONTHS, MAX_MIN_YEARS, TOTAL_MONTHS, rank, screen
 
@@ -97,7 +98,8 @@ def main(argv=None) -> int:
             j["application_url"] = application_link(j, links.get(j["job_key"], []))
             j["application_kind"] = "linkedin" if "linkedin.com" in (j["application_url"] or "") else "unknown"
         j.setdefault("linkedin_url", j["url"] if j.get("linkedin_job_id") else None)
-    ok, out = rank([screen(j, profile) for j in jobs.values()])
+    cities = [c.split(",")[0] for c in load_config().get("default_locations", [])]       # chosen cities: screen the actual location
+    ok, out = rank([screen(j, profile, chosen_cities=cities) for j in jobs.values()])
     out_dir = Path(args.out) / f"screening-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     out_dir.mkdir(parents=True)
 

@@ -154,14 +154,14 @@ def test_optional_assessment_failure_does_not_hide_jobs(env, capsys, monkeypatch
 def test_default_dry_run_shows_order_locations_count_and_cap(env, capsys):
     tmp, args, calls, mp = env
     args = [a for a in args if a != "--plain-roles"] + ["--location", "Hyderabad,Telangana,India", "--dry-run", "--max-searches", "5"]
-    (tmp / "p.md").write_text(PROFILE.replace("- DevOps Engineer\n- Platform Engineer", "- Backend Engineer\n- DevOps Engineer\n- SDET"))
+    (tmp / "p.md").write_text(PROFILE.replace("- DevOps Engineer\n- Platform Engineer", "- Backend Engineer\n- Software Development Engineer"))
     enable(mp)
     assert rs.main(args) == 0
     out = capsys.readouterr().out
     assert "Locations: Bengaluru, Hyderabad" in out and "fit within the configured cap: 5" in out and calls == []
     lines = [l for l in out.splitlines() if "[RUN]" in l or "[beyond cap]" in l]
     assert sum("[RUN]" in l for l in lines) == 5 and "[beyond cap]" in lines[5]
-    assert {"backend", "devops_platform", "testing"} <= {l.split()[2] for l in lines[:3]}
+    assert {"backend", "sde"} <= {l.split()[2] for l in lines[:2]}
     assert "@ Bengaluru" in lines[0] and "@ Hyderabad" in lines[1]
 
 
@@ -186,13 +186,13 @@ def test_offset_and_cap_select_the_next_batch_and_dry_run_shows_cap_estimate_and
     tmp, args, calls, mp = env
     base = [a for a in args if a != "--plain-roles"] + ["--location", "Hyderabad,Telangana,India", "--location",
                                                         "Visakhapatnam,Andhra Pradesh,India"]
-    (tmp / "p.md").write_text(PROFILE.replace("- DevOps Engineer\n- Platform Engineer", "- Backend Engineer\n- DevOps Engineer\n- SDET\n- AI Platform Engineer"))
+    (tmp / "p.md").write_text(PROFILE.replace("- DevOps Engineer\n- Platform Engineer", "- Backend Engineer\n- Software Development Engineer\n- Software Engineer"))
     enable(mp)
     assert rs.main(base + ["--dry-run", "--max-searches", "4"]) == 0
     first = capsys.readouterr().out
     assert "Request-count cap: 4 (--max-searches); offset 0; this batch runs plan items 1-4" in first
     assert "Estimated cost of this batch (ASSUMED $0.025/search, not verified billing): $0.100" in first
-    assert "Next batch: --offset 4" in first and any("[RUN]" in l and "SDE I" in l for l in first.splitlines())
+    assert "Next batch: --offset 4" in first and any("[RUN]" in l and "Backend Engineer" in l for l in first.splitlines())
     assert rs.main(base + ["--dry-run", "--max-searches", "4"]) == 0
     assert capsys.readouterr().out == first                                    # same first queries every time
     assert rs.main(base + ["--dry-run", "--max-searches", "4", "--offset", "4"]) == 0
@@ -229,7 +229,7 @@ def test_skipped_jobs_are_counted_and_screen_flag_writes_per_query_report(env, c
     assert json.loads((run / "results.json").read_text())["summary"]["skipped_no_identity"] == 1
     rep = (run / "report.md").read_text()
     assert "Skipped for missing identity/application link: **1**" in rep and "consistency-checked" in rep
-    assert "| 1 | DevOps Engineer | Bengaluru | ok | 2 | 1 | 1 | 0 | 1 |" in rep and "careers.acme.example" in rep
+    assert "| 1 | DevOps Engineer | 1 | Bengaluru | ok | 2 | 1 | 1 | 0 | 1 |" in rep and "careers.acme.example" in rep
     assert "No claim that relevance improved" in rep
     sc = json.loads((run / "screened.json").read_text())
     assert len(sc["queries"]) == 1 and sc["shortlist"][0]["application_kind"] == "employer_ats"
@@ -303,3 +303,225 @@ def test_default_locations_come_from_config_when_no_location_is_given(env, capsy
     assert rs.main(a + ["--dry-run", "--max-searches", "6"]) == 0
     out = capsys.readouterr().out
     assert "Locations: Bengaluru, Hyderabad;" in out and "Visakhapatnam" not in out and calls == []
+
+
+def _page(q, n, token, start=0):
+    jobs = [{"title": f"Role {start + i}", "company_name": f"Co{start + i}", "location": "Bengaluru, Karnataka", "via": f"Co{start + i} Careers",
+             "description": "x" * 900, "job_id": f"gid-{start + i}", "extensions": ["2 days ago"],
+             "apply_options": [{"title": f"Co{start + i} Careers", "link": f"https://careers.co{start + i}.example/job/{start + i}"}]} for i in range(n)]
+    out = {"search_metadata": {"processed_at": RT}, "search_parameters": {"q": q, "location_requested": "Bengaluru,Karnataka,India",
+                                                                           "google_domain": "google.com"}, "jobs_results": jobs}
+    if token:
+        out["serpapi_pagination"] = {"next_page_token": token}
+    return out
+
+
+def _qfile(tmp, pages=2):
+    f = tmp / "q.json"
+    f.write_text(json.dumps([{"label": "natural", "engine": "google_jobs", "q": "Software Development Engineer I",
+                              "location": "Bengaluru,Karnataka,India", "pages": pages}]))
+    return f
+
+
+def test_queries_file_pages_expand_to_planned_requests_and_validate():
+    from nemo.queryplan import load_queries_file
+    import tempfile
+    d = Path(tempfile.mkdtemp())
+    f = _qfile(d, 3)
+    steps = load_queries_file(f, "in")
+    assert [(s.page, s.role) for s in steps] == [(1, "natural (page 1)"), (2, "natural (page 2)"), (3, "natural (page 3)")]
+    assert all("next_page_token" not in s.params for s in steps)                       # token is added at run time only
+    for bad in (0, 4):
+        f.write_text(json.dumps([{"engine": "google_jobs", "q": "x", "location": "B", "pages": bad}]))
+        with pytest.raises(ValueError):
+            load_queries_file(f, None)
+    f.write_text(json.dumps([{"engine": "google", "q": "x", "pages": 2}]))
+    with pytest.raises(ValueError):
+        load_queries_file(f, None)
+
+
+def test_page_two_uses_the_fresh_token_and_keeps_query_location_and_domain_and_attributes_pages(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    seen = []
+
+    def fake(self, engine, params):
+        seen.append(dict(params))
+        return _page(params["q"], 10, "TOKEN-A", 0) if "next_page_token" not in params else _page(params["q"], 10, None, 8)   # 2 overlap
+    monkeypatch.setattr(SerpApi, "search_raw", fake)
+    q = _qfile(tmp)
+    assert rs.main([a for a in args if a != "--plain-roles"] + ["--queries-file", str(q), "--max-searches", "2", "--screen"]) == 0
+    assert len(seen) == 2 and "next_page_token" not in seen[0]
+    p2 = seen[1]
+    assert p2["next_page_token"] == "TOKEN-A" and p2["q"] == "Software Development Engineer I" and p2["location"] == "Bengaluru,Karnataka,India"
+    assert p2["google_domain"] == "google.com" and p2["gl"] == "in" and p2["hl"] == "en"
+    run = next((tmp / "runs").iterdir())
+    assert sorted(x.name for x in (run / "raw").iterdir()) == ["01_google_jobs.json", "02_google_jobs_p2.json"]      # raw saved per page
+    res = json.loads((run / "results.json").read_text())
+    assert len(res["jobs"]) == 18                                                    # 20 results, 2 overlapping jobs merged
+    pages_by_job = sorted(tuple(sorted({s["page"] for s in j["sources"]})) for j in res["jobs"])
+    assert pages_by_job.count((1, 2)) == 2 and pages_by_job.count((1,)) == 8 and pages_by_job.count((2,)) == 8
+    rep = (run / "report.md").read_text()
+    assert "| 1 | Software Development Engineer I | 1 | Bengaluru | ok | 10 |" in rep and "| 2 | Software Development Engineer I | 2 | Bengaluru | ok | 10 |" in rep
+
+
+def test_missing_token_skips_page_two_without_an_unplanned_search_and_spends_nothing(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    seen = []
+    monkeypatch.setattr(SerpApi, "search_raw", lambda self, e, p: (seen.append(p), _page(p["q"], 3, None))[1])
+    assert rs.main([a for a in args if a != "--plain-roles"] + ["--queries-file", str(_qfile(tmp)), "--max-searches", "2"]) == 0
+    out = capsys.readouterr().out
+    assert len(seen) == 1 and "page 2 not available (no next_page_token on the previous page)" in out
+    assert "spent $0.025" in out                                                       # one request, not two
+
+
+def test_pages_and_retries_all_count_against_the_request_cap(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    attempts = []
+
+    def flaky(self, engine, params):
+        attempts.append(dict(params))
+        if len(attempts) == 1:
+            raise ProviderError("timeout", "slow", charged=False)                   # page 1 fails once, retry succeeds
+        return _page(params["q"], 10, "TOKEN-B")
+    monkeypatch.setattr(SerpApi, "search_raw", flaky)
+    assert rs.main([a for a in args if a != "--plain-roles"] + ["--queries-file", str(_qfile(tmp)), "--max-searches", "2"]) == 0
+    out = capsys.readouterr().out
+    assert len(attempts) == 2 and "next_page_token" not in attempts[1] and "stopped by max_queries" in out   # retry used the page-2 slot
+
+
+def test_dry_run_shows_the_page_two_step(env, capsys):
+    tmp, args, calls, mp = env
+    enable(mp)
+    assert rs.main([a for a in args if a != "--plain-roles"] + ["--queries-file", str(_qfile(tmp)), "--max-searches", "2", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "natural (page 2)" in out and "token from page 1; skipped, not replaced, if absent" in out and "plan items 1-2" in out and calls == []
+
+
+def _aged(q, items, token=None):
+    """items: list of (title, age_text or None). Distinct employer link per title."""
+    jobs = []
+    for i, (title, age) in enumerate(items):
+        jobs.append({"title": title, "company_name": f"Co{i}", "location": "Bengaluru, Karnataka", "via": f"Co{i} Careers", "description": "x" * 900,
+                     "job_id": f"gid-{title}", "extensions": ([age] if age else []) + ["Full–time"],
+                     "apply_options": [{"title": f"Co{i} Careers", "link": f"https://careers.co{i}.example/job/{abs(hash(title)) % 10**8}"}]})
+    out = {"search_metadata": {"processed_at": RT}, "search_parameters": {"q": q, "location_requested": "Bengaluru,Karnataka,India", "google_domain": "google.com"},
+           "jobs_results": jobs}
+    if token:
+        out["serpapi_pagination"] = {"next_page_token": token}
+    return out
+
+
+def _one_query_file(tmp, *qs, pages=None):
+    f = tmp / "q.json"
+    f.write_text(json.dumps([{"label": "t", "engine": "google_jobs", "q": q, "location": "Bengaluru,Karnataka,India", **({"pages": pages} if pages else {})} for q in qs]))
+    return f
+
+
+def _summary(tmp):
+    return json.loads((next((tmp / "runs").iterdir()) / "results.json").read_text())["summary"]
+
+
+def test_pages_are_followed_until_the_request_budget_and_the_stop_reason_is_reported(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    seen = []
+
+    def fake(self, engine, params):
+        seen.append(dict(params))
+        n = len(seen)
+        return _aged(params["q"], [(f"Role p{n} {i}", "2 days ago") for i in range(3)], token=f"TOKEN-{n}")
+    monkeypatch.setattr(SerpApi, "search_raw", fake)
+    a = [x for x in args if x not in ("--plain-roles", "--lookback", "7d")]
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "SDE I")), "--max-searches", "3", "--yes"]) == 0
+    assert [("next_page_token" in p) for p in seen] == [False, True, True] and seen[2]["next_page_token"] == "TOKEN-2"
+    s = _summary(tmp)
+    assert s["stop_reason"] == "budget_exhausted" and s["requests_used"] == 3 and s["request_budget"] == 3 and s["pages_followed"] == 2 and s["jobs"] == 9
+    out = capsys.readouterr().out
+    assert "Collection stopped because: budget_exhausted; 3 of 3 requests used" in out and "Status: complete" in out    # budget end is not a failure
+    run = next((tmp / "runs").iterdir())
+    assert sorted(x.name for x in (run / "raw").iterdir()) == ["01_google_jobs.json", "02_google_jobs_p2.json", "03_google_jobs_p3.json"]
+
+
+def test_collection_stops_at_end_of_results_or_on_a_repeated_page(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    a = [x for x in args if x not in ("--plain-roles", "--lookback", "7d")]
+    n = {"i": 0}
+
+    def ends(self, engine, params):
+        n["i"] += 1
+        return _aged(params["q"], [(f"Role {n['i']} {i}", "2 days ago") for i in range(2)], token="T" if n["i"] < 2 else None)   # page 2 has no token
+    monkeypatch.setattr(SerpApi, "search_raw", ends)
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "SDE I")), "--max-searches", "6"]) == 0
+    s = _summary(tmp)
+    assert s["stop_reason"] == "end_of_results" and s["requests_used"] == 2 and "SDE I @ Bengaluru" in s["query_stops"]
+    import shutil
+    shutil.rmtree(tmp / "runs")
+    monkeypatch.setattr(SerpApi, "search_raw", lambda self, e, p: _aged(p["q"], [("Same role", "2 days ago"), ("Other role", "2 days ago")], token="T"))   # same page again
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "SDE I")), "--max-searches", "6"]) == 0
+    s = _summary(tmp)
+    assert s["stop_reason"] == "repeated_pages" and s["requests_used"] == 2 and s["query_stops"]["SDE I @ Bengaluru"] == "repeated_page"
+
+
+def test_pages_follow_breadth_first_explicit_pages_are_not_doubled_and_no_follow_is_respected(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    a = [x for x in args if x not in ("--plain-roles", "--lookback", "7d")]
+    order = []
+    monkeypatch.setattr(SerpApi, "search_raw", lambda self, e, p: (order.append((p["q"], "next_page_token" in p)),
+                                                                   _aged(p["q"], [(f"{p['q']} {len(order)} {i}", "2 days ago") for i in range(2)], token=f"T{len(order)}"))[1])
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "Q1", "Q2")), "--max-searches", "4"]) == 0
+    assert order == [("Q1", False), ("Q2", False), ("Q1", True), ("Q2", True)]               # page 1 of every query before any page 2
+    import shutil
+    shutil.rmtree(tmp / "runs"); order.clear()
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "Q1", pages=2)), "--max-searches", "3"]) == 0
+    assert order == [("Q1", False), ("Q1", True), ("Q1", True)]                              # explicit page 2, then page 3 followed once
+    shutil.rmtree(tmp / "runs"); order.clear()
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "Q1")), "--max-searches", "5", "--no-follow-pages"]) == 0
+    assert order == [("Q1", False)] and "later pages not followed" in _summary(tmp)["stop_reason"]
+
+
+def test_freshness_separates_confirmed_unknown_and_older_and_keeps_every_record(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    a = [x for x in args if x not in ("--plain-roles", "--lookback", "7d")]                 # no --lookback: default max age is 24h
+    items = [("Backend Engineer fresh", "3 hours ago"), ("Backend Engineer coarse", "1 day ago"), ("Backend Engineer noage", None),
+             ("Backend Engineer old", "5 days ago")]
+    monkeypatch.setattr(SerpApi, "search_raw", lambda self, e, p: _aged(p["q"], items))
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "Backend Engineer")), "--max-searches", "1", "--screen"]) == 0
+    run = next((tmp / "runs").iterdir())
+    res = json.loads((run / "results.json").read_text())
+    assert res["lookback"] == "24h" and res["summary"]["freshness"] == {"confirmed_within": 1, "unconfirmed": 2, "older": 1}
+    assert len(res["jobs"]) == 4                                                              # clearly older job is stored, not dropped
+    sc = json.loads((run / "screened.json").read_text())
+    assert sc["max_age"] == "24h"
+    assert [j["title"] for j in sc["fresh_shortlist"]] == ["Backend Engineer fresh"]
+    assert sorted(j["title"] for j in sc["age_unconfirmed"]) == ["Backend Engineer coarse", "Backend Engineer noage"]
+    assert [j["title"] for j in sc["older_than_max_age"]] == ["Backend Engineer old"]
+    assert all("reported_age" in j and "application_link" in j for j in sc["shortlist"])      # age evidence and link retained
+    rep = (run / "report.md").read_text()
+    assert "## Fresh shortlist: reported within 24h" in rep and "Collection stopped because" in rep
+
+
+def test_status_file_reports_running_complete_and_failure_and_accepts_a_run_id(env, capsys, monkeypatch):
+    tmp, args, calls, mp = env
+    enable(mp)
+    a = [x for x in args if x not in ("--plain-roles",)]
+    states = []
+
+    def fake(self, engine, params):
+        states.append(json.loads((tmp / "runs" / "svc-1" / "status.json").read_text())["state"])      # visible while the run is in progress
+        return _aged(params["q"], [("Backend Engineer", "2 hours ago")])
+    monkeypatch.setattr(SerpApi, "search_raw", fake)
+    assert rs.main(a + ["--queries-file", str(_one_query_file(tmp, "Backend Engineer")), "--max-searches", "1", "--run-id", "svc-1"]) == 0
+    assert states == ["running"]
+    done = json.loads((tmp / "runs" / "svc-1" / "status.json").read_text())
+    assert done["state"] == "complete" and done["requests_used"] == 1 and done["stop_reason"] and done["freshness"]["confirmed_within"] == 1
+    monkeypatch.setattr(SerpApi, "search_raw", lambda self, e, p: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        rs.main(a + ["--queries-file", str(_one_query_file(tmp, "Backend Engineer")), "--max-searches", "1", "--run-id", "svc-2"])
+    failed = json.loads((tmp / "runs" / "svc-2" / "status.json").read_text())
+    assert failed["state"] == "failed" and "boom" in failed["error"]

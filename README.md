@@ -33,7 +33,7 @@ Discovery run (Phase 1; SerpApi key and budget in `.env`):
 .venv/bin/python scripts/run_search.py --profile job-profile.md --lookback 7d --gl in   # cities from config default_locations (Bengaluru, Hyderabad); add --dry-run to preview, --assess for optional local-model notes
 ```
 
-Searches come from `config/search_terms.json` (role families, early-career aliases, plain roles; `--search-config` to override, `--plain-roles` to search desired roles as written). `--dry-run` shows the query order, locations and which searches fit `--max-searches`; `--offset N` runs the next batch of a capped plan; `--screen` also writes `report.md` (per-query results, screening, application links). Jobs without a LinkedIn link are kept with their application links. Screen saved results (no network): `.venv/bin/python scripts/screen_results.py`.
+Searches come from `config/search_terms.json` (SDE and backend families, early-career aliases, plain roles; `--search-config` to override, `--plain-roles` to search desired roles as written). `--dry-run` shows the query order, locations and which searches fit `--max-searches`; `--offset N` runs the next batch of a capped plan; `--screen` also writes `report.md` (per-query results, screening, application links). Jobs without a LinkedIn link are kept with their application links. Screen saved results (no network): `.venv/bin/python scripts/screen_results.py`.
 
 Results go to `runs/<run-id>/` (`summary.md`, `results.csv`, `results.json`, `raw/`) and `data/nemo.sqlite`; both are gitignored. Reported posting ages are Google's unverified claims; nothing is filtered by date or fit.
 
@@ -46,3 +46,11 @@ OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_CONTEXT_LENGTH=4096 olla
 ```
 
 Paid external calls are refused unless `NEMO_PAID_CALLS_ENABLED=true` and `NEMO_MAX_USD_PER_RUN` are set (optional `NEMO_MONTHLY_USD_CAP`). Keys come from the environment or `.env` only. Résumés, SQLite files, `.env` and probe output are gitignored.
+
+Collection service (stdlib, localhost, one run at a time; same flow and spend guards as `run_search.py --screen`):
+
+```bash
+.venv/bin/python scripts/serve.py                       # http://127.0.0.1:8765
+curl -s -X POST localhost:8765/runs -d '{"cities": ["Bengaluru", "Hyderabad"], "max_age_hours": 24, "request_budget": 12}'
+curl -s localhost:8765/runs/<run_id>                     # state, stop reason, freshness, fresh shortlist
+```

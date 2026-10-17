@@ -51,6 +51,28 @@ class Step:
     engine: str        # google_jobs | google
     role: str
     params: dict[str, str]
+    page: int = 1      # >1: follow-up page; next_page_token is added at run time from the previous page's response
+    planned: bool = True   # False for pages followed at run time (not in the plan; limited by the request budget)
+
+
+FRESHNESS_BUCKETS = {"reported_within": "confirmed_within", "ambiguous": "unconfirmed", "unknown": "unconfirmed", "reported_outside": "older"}
+
+
+def freshness_bucket(job: dict) -> str:
+    """confirmed_within: Google's reported age puts the whole posting-time interval inside the max age (still an aggregator claim,
+    not verified). older: reported age clearly exceeds it. unconfirmed: no age, or an age too coarse to decide ('1 day ago')."""
+    return FRESHNESS_BUCKETS.get(job.get("lookback_status") or "unknown", "unconfirmed")
+
+
+def freshness_at(job: dict, max_age: timedelta) -> str:
+    """Same bucket as freshness_bucket, recomputed for a saved record against a chosen max age, measured from the request time
+    stored with its reported age (so an old run is judged as of its own collection time, not today)."""
+    b = job.get("best_reported_age") or {}
+    ref = parse_time(b.get("request_time"))
+    if not b.get("raw") or ref is None:
+        return "unconfirmed"
+    earliest, latest, _ = estimate_interval(b["raw"], ref)
+    return FRESHNESS_BUCKETS[lookback_status(earliest, latest, ref - max_age, ref)]
 
 
 def city_name(location: str) -> str:
@@ -125,6 +147,7 @@ def lookback_status(earliest: datetime | None, latest: datetime | None, window_s
     return "ambiguous"
 
 
+_SCHEDULE_EXT = re.compile(r"^(full[–\-‑ ]?time|part[–\-‑ ]?time|internship|contractor|contract|temporary|volunteer|per diem)\b[^0-9]*$", re.I)
 _AGO_EXT = re.compile(r"^\s*\d+\+?\s*(?:second|minute|hour|day|week|month|year)s?\s+ago\s*$", re.I)
 
 
@@ -285,9 +308,11 @@ class Sighting:
     application: dict | None = None
     apply_options: list[dict] = field(default_factory=list)
     legacy_id: str | None = None     # key as generated before the query-string fix (history compatibility)
+    page: int = 1                    # result page of the originating search (page attribution)
+    schedule: str | None = None      # employment type as reported by Google Jobs ("Full–time", "Internship", "Contractor"), unverified
 
 
-def parse_google_jobs(raw: dict, window: tuple[datetime, datetime]) -> tuple[list[Sighting], list[dict], int, int]:
+def parse_google_jobs(raw: dict, window: tuple[datetime, datetime], page: int = 1) -> tuple[list[Sighting], list[dict], int, int]:
     """(kept, rejected_linkedin_links, kept_without_linkedin_count, skipped_without_identity). Jobs are kept with or
     without a LinkedIn link; a LinkedIn link that clearly disagrees with the listing is rejected and recorded. Jobs with
     no application link and no Google job id cannot be identified and are skipped (and counted)."""
@@ -320,11 +345,12 @@ def parse_google_jobs(raw: dict, window: tuple[datetime, datetime]) -> tuple[lis
             age = next((e for e in j.get("extensions") or [] if isinstance(e, str) and _AGO_EXT.match(e)), None)
             src = "google_jobs.extensions"
         reports = [date_report(age, src, "aggregator_reported", rt, j.get("via"), window)] if age else []
+        schedule = next((e for e in j.get("extensions") or [] if isinstance(e, str) and _SCHEDULE_EXT.match(e.strip())), None)
         returned = li_link or (app["url"] if app else "")
         kept.append(Sighting(key, "google_jobs", sp.get("q", ""), sp.get("location_requested") or sp.get("location"), j.get("title"),
                              j.get("company_name"), j.get("location"), j.get("description") or "", j.get("via"),
                              returned, reports, flags, li_id, app, opts,
-                             job_key(li_id, app, j.get("job_id"), legacy=True)))
+                             job_key(li_id, app, j.get("job_id"), legacy=True), page, schedule))
     return kept, rejected, no_li, unidentifiable
 
 
@@ -369,7 +395,7 @@ def merge(sightings: list[Sighting]) -> dict[str, dict[str, Any]]:
     for s in sightings:
         j = jobs.setdefault(s.job_id, {"job_key": s.job_id, "linkedin_job_id": None, "url": "", "linkedin_url": None,
                                        "application_url": None, "application_kind": None, "application_options": [],
-                                       "linkedin_link_status": None, "legacy_key": None,
+                                       "linkedin_link_status": None, "legacy_key": None, "schedule_type": None,
                                        "title": None, "company": None, "location": None, "description": "",
                                        "description_source": None, "sources": [], "reported_ages": [], "flags": []})
         for k in ("title", "company", "location"):
@@ -377,6 +403,8 @@ def merge(sightings: list[Sighting]) -> dict[str, dict[str, Any]]:
                 j[k] = getattr(s, k)
         if len(s.description) > len(j["description"]):
             j["description"], j["description_source"] = s.description, s.via
+        if s.schedule and not j["schedule_type"]:
+            j["schedule_type"] = s.schedule
         if s.legacy_id and s.legacy_id != s.job_id:
             j["legacy_key"] = s.legacy_id
         if s.linkedin_job_id:
@@ -385,7 +413,7 @@ def merge(sightings: list[Sighting]) -> dict[str, dict[str, Any]]:
         seen = {normalize_url(o["link"]) for o in j["application_options"]}
         j["application_options"] += [o for o in s.apply_options if normalize_url(o["link"]) not in seen]
         j["sources"].append({"engine": s.engine, "query": s.query, "location_param": s.location_param, "via": s.via,
-                             "returned_url": s.returned_url})
+                             "returned_url": s.returned_url, "page": s.page})
         j["reported_ages"] += s.date_reports
         j["flags"] += [f for f in s.flags if f not in j["flags"]]
     for j in jobs.values():

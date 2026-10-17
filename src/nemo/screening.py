@@ -42,7 +42,7 @@ _FRESHER = re.compile(r"\bfreshers?\b|entry[- ]level|new grad|fresh graduate", r
 # "SDE I, II, III" / "Engineer I-III": one posting for several levels, including an early-career one.
 _MIXED_LEVEL = re.compile(r"(?<![a-z0-9])(?:i|1)(?:\s*(?:,|/|&|\band\b|\bor\b|\bto\b|–|-)\s*(?:sde[- ]?|engineer[- ]?)?"
                           r"(?:iii|ii|iv|v|2|3|4|5)(?![a-z0-9]))+", re.I)
-_SENIOR_TITLE = re.compile(r"\b(senior|sr\.?|staff|principal|lead|leader|architect|manager|head|director|"
+_SENIOR_TITLE = re.compile(r"\b(senior|sr\b\.?|staff|principal|lead|leader|architect|manager|head|director|"
                            r"sde[- ]?(3|4|5|iii|iv|v)|engineer (iii|iv|v|3|4)|(iii|iv)\b)", re.I)
 _NON_SOFTWARE_TITLE = re.compile(
     r"\b(lab|laboratory|supplier|manufacturing|factory|mechanical|chemical|civil|industrial|"
@@ -62,51 +62,138 @@ _ABROAD = re.compile(r"united states|\busa\b|\bu\.s\.|united kingdom|\buk\b|cana
 ROLE_PATTERNS = {
     "backend engineer": r"back[- ]?end",
     "software development engineer": r"\bsde\b|software (development )?engineer|software developer",
-    "devops engineer": r"devops",
-    "platform engineer": r"platform engineer",
-    "site reliability engineer": r"site reliability|\bsre\b",
-    "cloud engineer": r"cloud (engineer|infrastructure|developer)",
-    "sdet": r"sdet|development engineer in test|test automation|automation (test )?engineer|qa automation",
-    "ai platform engineer": r"ai (platform|infrastructure)|ml ?ops|machine learning (platform|engineer)|llm",
+    "software engineer": r"\bsde\b|software (development )?engineer|software developer",
 }
-ADJACENT = re.compile(r"full[- ]?stack|data engineer|software qa|infrastructure engineer|site reliability", re.I)
+ADJACENT = re.compile(r"full[- ]?stack|data engineer", re.I)
 
-# Role discipline. SDE-level titles are only a strong match for the disciplines in TARGET_DISCIPLINES.
-_DISCIPLINE_TITLE = (
+# ---- Role discipline, from the title AND the responsibilities (counts of distinct signal groups in the description).
+# Default shortlist = SDE / backend. Primarily infrastructure-operations, DevOps, SRE, QA and testing roles are excluded
+# (kept in the output with the reason); mixed or unclear roles are flagged for review, not guessed.
+_FRONT_TITLES = (
     ("frontend", r"front[- ]?end|\bui\b|\bux\b|react|angular|\bvue\b|web developer|javascript developer"),
-    ("data_science", r"data scien|data analyst|\bnlp\b|research scientist|\bml scientist|machine learning scientist|analytics"),
+    ("data_science", r"data scien|data analyst|research scientist|\bml scientist|machine learning scientist|analytics"),
     ("mobile", r"android|\bios\b|mobile"),
     ("fullstack", r"full[- ]?stack"),
-    ("backend", r"back[- ]?end|server[- ]side|\bapi\b"),
-    ("devops", r"devops|\bsre\b|site reliability|platform engineer|cloud (engineer|infrastructure|support)|infrastructure engineer|release engineer"),
-    ("sdet", r"sdet|test automation|qa automation|engineer in test|automation (test )?engineer"),
-    ("ai_ml", r"ai (platform|infrastructure|engineer)|ml ?ops|\bllm\b|genai|ml engineer|machine learning engineer"),
 )
-_DISCIPLINE_BODY = {
-    "backend": r"\b(apis?|microservices?|rest(ful)?|backend|back-end|database|sql|python|java|golang|go lang|spring|node\.?js)\b",
-    "devops": r"kubernetes|ci/cd|terraform|ansible|docker|jenkins|\baws\b|\bgcp\b|azure|infrastructure|devops",
-    "sdet": r"selenium|test automation|test cases|playwright|cypress",
-    "frontend": r"\breact\b|angular|\bvue\b|\bcss\b|\bhtml\b|front[- ]?end",
-    "data_science": r"data science|machine learning models?|pandas|statistics|\bnlp\b",
-}
-TARGET_DISCIPLINES = {"backend", "devops", "sdet", "ai_ml"}
+_INFRA_TITLE = re.compile(r"devops|devsecops|\bsre\b|site reliability|reliability engineer|platform engineer|cloud (engineer|infrastructure|"
+                          r"support|operations|architect)|infrastructure engineer|release engineer|systems? (engineer|administrator)|"
+                          r"network engineer|production support", re.I)
+_QA_TITLE_CLASS = re.compile(r"sdet|\bqa\b|quality (assurance|engineer|analyst)|test (engineer|automation|analyst)|engineer in test|"
+                             r"automation test|testing engineer", re.I)
+_AI_TITLE = re.compile(r"\bai\b|\bml\b|machine learning|\bllm\b|genai|generative ai|deep learning|\bnlp\b", re.I)
+_BACKEND_TITLE = re.compile(r"back[- ]?end|server[- ]side|\bapi\b", re.I)
+_SOFTWARE_ROLE_TITLE = re.compile(r"software (development )?engineer|software developer|\bsde\b|\bdeveloper\b|\bprogrammer\b", re.I)
+_BE_GROUPS = {
+    "APIs": r"\bapis?\b|\brest(ful)?\b|graphql|grpc", "microservices": r"microservices?|service[- ]oriented",
+    "backend": r"back[- ]?end|server[- ]side", "databases": r"\b(databases?|sql|nosql|postgres(ql)?|mysql|mongodb|redis|sqlalchemy|orm|dynamodb)\b",
+    "distributed systems": r"distributed systems?|scalab(le|ility)|high[- ]throughput|concurrency|caching",
+    "backend language": r"\b(python|java|golang|go lang|node\.?js|spring( boot)?|django|flask|fastapi|kotlin|c#|\.net)\b",
+    "system design": r"system design|data structures|algorithms|design patterns|code reviews?"}
+_INFRA_GROUPS = {
+    "devops/SRE": r"devops|\bsre\b|site reliability|devsecops", "infrastructure as code": r"terraform|ansible|pulumi|cloudformation|infrastructure as code|\biac\b",
+    "cluster operations": r"kubernetes (cluster|administration|operations)|cluster (management|operations|upgrades?)|helm charts?|argo ?cd|gitops",
+    "pipelines/release": r"ci/?cd pipelines?|build (and|&) release|release (engineering|management)|jenkins|deployment pipelines?",
+    "monitoring/on-call": r"monitoring|observability|prometheus|grafana|alerting|on[- ]call|incident (response|management)|uptime|capacity planning",
+    "system administration": r"linux (system )?administration|sysadmin|system administration|infrastructure (provisioning|operations|management)|"
+                             r"server (provisioning|maintenance)|networking|firewall"}
+_QA_GROUPS = {
+    "test cases": r"test (cases?|plans?|scenarios?|strategy)", "test automation tools": r"selenium|playwright|cypress|appium|testng|robot framework|webdriver",
+    "QA work": r"\bqa\b|quality assurance|manual testing|regression testing|functional testing|bug (reports?|triage)"}
+_AI_PRODUCT = re.compile(r"\bllm\b|\brag\b|genai|generative ai|openai|langchain|vector (db|database|store)|embeddings?", re.I)
+_AI_GROUPS = {
+    "LLMs": r"\bllms?\b|large language models?", "RAG": r"\brag\b|retrieval[- ]augmented", "agents": r"\bagent(s|ic)?\b|multi[- ]agent|langchain|llamaindex",
+    "vector search": r"vector (search|db|database|store)|embeddings?", "ML/NLP": r"machine learning|deep learning|\bnlp\b|model training|fine[- ]?tun"}
+
+# Required-stack fit (separate from backend-role fit). Python-compatible and language-flexible roles rank first; other stacks are
+# kept visible as gaps, never silently excluded and never presented as equally strong.
+_LANG = {
+    "Python": r"\bpython\b|\bdjango\b|\bflask\b|\bfastapi\b",
+    "Java/Spring": r"\bjava\b|\bspring( boot)?\b|\bhibernate\b|\bj2ee\b",
+    "Node.js/TypeScript": r"node\.?js|\bexpress(\.js)?\b|\btypescript\b|\bnestjs\b",
+    "Go": r"\bgolang\b|\bgo lang\b|\bgo (language|programming|developer)\b|\b(python|java|node(\.?js)?)[,/ ]+(or )?go\b|\bgo[,/ ]+(python|java|node)",
+    "C#/.NET": r"\bc#|\.net\b|asp\.net", "PHP": r"\bphp\b|laravel|symfony", "Ruby": r"\bruby\b|\brails\b",
+    "C/C++": r"\bc\+\+|\bc/c\+\+", "Kotlin/Scala": r"\bkotlin\b|\bscala\b", "Rust": r"\brust\b"}
+
+
+def stack_assessment(desc: str) -> dict[str, Any]:
+    """fit: 'python' (Python or a Python framework is named among the required stack), 'flexible' (no backend language is named),
+    'gap' (a different required language and no Python). Languages named only as preferred ('a plus') do not count as required."""
+    text = (desc or "")[:3500]
+    required: list[str] = []
+    python_plus = False
+    for sent in _SPLIT.split(text):
+        if _PREFERRED.search(sent):
+            python_plus = python_plus or bool(re.search(_LANG["Python"], sent, re.I))
+            continue
+        for lang, pat in _LANG.items():
+            if lang not in required and re.search(pat, sent, re.I):
+                required.append(lang)
+    if "Python" in required:
+        others = [x for x in required if x != "Python"]
+        return {"fit": "python", "languages": required, "note": "Python named" + (f"; also lists {', '.join(others)}" if others else "")}
+    if not required:
+        return {"fit": "flexible", "languages": [], "note": "no backend language named in the description"}
+    return {"fit": "gap", "languages": required,
+            "note": f"requires {', '.join(required)}; " + ("Python is only listed as a plus" if python_plus else "Python is not mentioned")}
+
+
+TARGET_DISCIPLINES = {"backend"}
 ADJACENT_DISCIPLINES = {"frontend", "fullstack", "data_science", "mobile"}
+DEFAULT_EXCLUDE_NOTE = "excluded from the default SDE/backend shortlist (profile: not infrastructure operations, DevOps, SRE, QA or testing)"
+
+
+def _groups(table: dict[str, str], text: str) -> list[str]:
+    return [name for name, pat in table.items() if re.search(pat, text, re.I)]
+
+
+def classify_role(title: str, desc: str) -> dict[str, Any]:
+    """Role discipline from title and responsibilities. Returns discipline plus the evidence and, when applicable, an
+    `exclude` reason (primarily infrastructure operations / DevOps / SRE or QA / testing) or a `review` reason (ambiguous)."""
+    title, head = title or "", (desc or "")[:3000]
+    be, infra, qa = _groups(_BE_GROUPS, head), _groups(_INFRA_GROUPS, head), _groups(_QA_GROUPS, head)
+    out: dict[str, Any] = {"discipline": "unspecified", "backend_evidence": be, "infra_evidence": infra, "qa_evidence": qa,
+                           "ai_product": bool(_AI_PRODUCT.search(head)), "exclude": None, "review": None,
+                           "title_backend": bool(_BACKEND_TITLE.search(title))}
+    hits = [n for n, pat in _FRONT_TITLES if re.search(pat, title, re.I)]
+    be_t, sw_t = bool(_BACKEND_TITLE.search(title)), bool(_SOFTWARE_ROLE_TITLE.search(title))
+    if hits:
+        out["discipline"] = "fullstack" if "frontend" in hits and (be_t or "fullstack" in hits) else min(hits, key=["frontend", "data_science", "mobile", "fullstack"].index)
+        return out
+    if _QA_TITLE_CLASS.search(title):
+        out.update(discipline="qa_testing", exclude=f"QA / testing role by title '{title}'")
+    elif _INFRA_TITLE.search(title):
+        if be_t or sw_t:
+            out.update(discipline="infra_ops", review=f"title mixes infrastructure and software-engineering terms ('{title}')")
+        else:
+            out.update(discipline="infra_ops", exclude=f"primarily infrastructure / DevOps / SRE role by title '{title}'")
+    elif _AI_TITLE.search(title) and not be_t:
+        ai = _groups(_AI_GROUPS, head)
+        out["ai_evidence"] = ai
+        if len(ai) >= 2:     # the work is AI engineering (LLMs, RAG, agents, vector search), not primarily backend software
+            out.update(discipline="ai_ml", review=f"AI/ML title ('{title}') and the responsibilities centre on AI engineering ({', '.join(ai)}); "
+                                                   "backend work is incidental: moved out of the default SDE/backend shortlist")
+        elif len(be) >= 3 and len(be) > len(infra):
+            out.update(discipline="backend", review=None)
+        else:
+            out.update(discipline="ai_ml", review=f"AI/ML title ('{title}'): confirm it is a software-engineering role, not research or data science")
+    else:
+        if len(qa) >= 3 and len(qa) > len(be):
+            out.update(discipline="qa_testing", exclude=f"primarily QA / testing responsibilities ({', '.join(qa)}) for '{title}'")
+        elif len(infra) >= 3 and len(infra) >= 2 * len(be):
+            out.update(discipline="infra_ops", exclude=f"primarily infrastructure-operations responsibilities ({', '.join(infra)}) for '{title}'")
+        elif len(infra) >= 3 and (len(infra) >= len(be) + 3 if be_t else len(infra) > len(be)):
+            out.update(discipline="infra_ops", review=f"responsibilities mix backend work ({', '.join(be) or 'none'}) with infrastructure operations ({', '.join(infra)})")
+        elif len(be) >= 2 and len(be) >= len(infra) and len(be) >= len(qa):
+            out["discipline"] = "backend"
+        elif be_t:
+            out["discipline"] = "backend"
+        elif len(desc or "") >= 500:
+            out.update(discipline="unspecified", review="responsibilities do not clearly show backend / software-engineering work")
+    return out
 
 
 def discipline(title: str, desc: str) -> str:
-    """frontend | fullstack | data_science | mobile | backend | devops | sdet | ai_ml | unspecified. Title first; for a
-    generic title (e.g. 'SDE I') the description must show one discipline clearly, else 'unspecified'."""
-    hits = [name for name, pat in _DISCIPLINE_TITLE if re.search(pat, title or "", re.I)]
-    if "frontend" in hits and ("backend" in hits or "fullstack" in hits):
-        return "fullstack"
-    if hits:
-        order = ["frontend", "data_science", "mobile", "fullstack", "backend", "devops", "sdet", "ai_ml"]
-        return min(hits, key=order.index)
-    head = (desc or "")[:1500]
-    counts = {k: len(re.findall(p, head, re.I)) for k, p in _DISCIPLINE_BODY.items()}
-    best = max(counts, key=counts.get)
-    runner_up = sorted(counts.values())[-2]
-    return best if counts[best] >= 3 and counts[best] > runner_up else "unspecified"
+    return classify_role(title, desc)["discipline"]
 
 
 SKILLS = {"python": r"\bpython\b", "kubernetes": r"kubernetes|\bk8s\b|\bgke\b|\beks\b", "ci/cd": r"ci/cd|\bcicd\b|jenkins|gitlab",
@@ -176,12 +263,43 @@ def parse_experience(title: str, description: str) -> Experience:
     return exp
 
 
-def employment_type(title: str, description: str) -> str:
-    if re.search(r"\bintern(ship)?\b", title or "", re.I) or re.search(r"\bintern(ship)?\b", (description or "")[:300], re.I):
+def employment_type(title: str, description: str, schedule: str | None = None) -> str:
+    """internship | contract | full_time | unspecified. `schedule` is Google Jobs' own label (unverified). Internship or contract
+    wording in the title/description wins over a Full-time label; 'unspecified' means no source states the type."""
+    head = f"{title} {(description or '')[:400]}"
+    sched = (schedule or "").lower()
+    if re.search(r"\bintern(ship)?\b", title or "", re.I) or re.search(r"\bintern(ship)?\b", (description or "")[:300], re.I) or "intern" in sched:
         return "internship"
-    if re.search(r"\bcontract(or)?\b|\bconsultant\b|\bFTC\b|fixed[- ]term", f"{title} {(description or '')[:400]}", re.I):
+    if re.search(r"\bcontract(or)?\b|\bconsultant\b|\bFTC\b|fixed[- ]term", head, re.I) or re.search(r"contract|temporary", sched):
         return "contract"
+    if re.search(r"full[–\-‑ ]?time", sched):
+        return "full_time"
     return "unspecified"
+
+
+_CITY_ALIASES = {"bangalore": "bengaluru", "bengaluru urban": "bengaluru", "bangalore urban": "bengaluru", "bangalore rural": "bengaluru",
+                 "bengaluru rural": "bengaluru", "secunderabad": "hyderabad", "cyberabad": "hyderabad", "hitec city": "hyderabad"}
+_OTHER_CITIES = ("pune", "mumbai", "navi mumbai", "thane", "chennai", "delhi", "new delhi", "gurugram", "gurgaon", "noida", "greater noida",
+                 "ghaziabad", "faridabad", "kolkata", "ahmedabad", "vadodara", "surat", "indore", "bhopal", "jaipur", "kochi", "coimbatore",
+                 "chandigarh", "mohali", "lucknow", "nagpur", "bhubaneswar", "visakhapatnam", "vizag", "vijayawada", "hosur", "mysuru",
+                 "mysore", "pimpri-chinchwad", "pimpri chinchwad", "thiruvananthapuram", "trivandrum", "nashik", "patna", "ranchi", "mangaluru")
+
+
+def location_fit(location: str, chosen_cities: tuple[str, ...] | list[str] | None) -> tuple[str, str]:
+    """('chosen'|'remote'|'other'|'unknown', city). 'other' = a recognised Indian city that is not one of the chosen cities;
+    'unknown' = no city stated (e.g. just 'India' or a state)."""
+    loc = (location or "").lower()
+    if re.search(r"\bremote\b|work from home|\bwfh\b|\banywhere\b", loc):
+        return "remote", ""
+    first = re.sub(r"\s*\(\+\d+ others?\)", "", loc).split(",")[0].strip()
+    norm = lambda c: _CITY_ALIASES.get(c.strip().lower(), c.strip().lower())
+    chosen = {norm(c) for c in chosen_cities or ()}
+    city = norm(first)
+    if city in chosen:
+        return "chosen", city
+    if city in {norm(c) for c in _OTHER_CITIES}:
+        return "other", city
+    return "unknown", city
 
 
 def _in_india(location: str) -> bool | None:
@@ -191,7 +309,25 @@ def _in_india(location: str) -> bool | None:
     return False if _ABROAD.search(location or "") else None
 
 
-MIN_ASSESSABLE_CHARS = 500
+_RESP_HEADER = re.compile(r"responsibilit|what you.?ll (do|work on|be doing)|key (duties|tasks)|your role|role overview|the role|day[- ]to[- ]day|you will\b", re.I)
+_ACTION_SENTENCE = re.compile(r"(?:^|[.!?\n•;]\s*)(design|build|develop|implement|own|maintain|collaborate|write|deploy|work with|work on|participate|lead|create|"
+                              r"ensure|optimi[sz]e|integrate|troubleshoot|architect|contribute|improve|debug|review|support|scale)\b", re.I)
+_REQ_HEADER = re.compile(r"requirements?|qualifications?|what we.?re looking for|who you are|must[- ]have|you have\b|skills|"
+                         r"proficien|knowledge of|familiar(ity)? with|experience (with|in|of)|(experience|exp)\s*[:\-]|\d\s*\+?\s*years?", re.I)
+_TRUNCATED = re.compile(r"(\.\.\.|…|show more|see more|read more)\s*$", re.I)
+
+
+def description_content(desc: str) -> dict[str, Any]:
+    """What the description actually contains, not how long it is. 'content_ok' = it describes the work (responsibilities) AND
+    states requirements and is not cut off; 'partial' = only one of them, or truncated; 'thin' = neither. A heuristic: it
+    does not prove the posting is complete, only that Nemo has the parts it needs to assess and later tailor a resume."""
+    t = (desc or "").strip()
+    resp = bool(_RESP_HEADER.search(t)) or len(_ACTION_SENTENCE.findall(t)) >= 3
+    req = bool(_REQ_HEADER.search(t))
+    truncated = bool(_TRUNCATED.search(t))
+    level = "thin" if len(t) < 100 or not (resp or req) else "content_ok" if resp and req and not truncated else "partial"
+    missing = [n for n, ok in (("responsibilities", resp), ("requirements", req)) if not ok] + (["text is cut off"] if truncated else [])
+    return {"level": level, "responsibilities": resp, "requirements": req, "truncated": truncated, "missing": missing}
 
 
 @dataclass
@@ -211,18 +347,24 @@ class Screened:
     gap_full_time_months: float | None = None
     gap_total_months: float | None = None
     discipline: str = "unspecified"
-    readiness: str = "length_ok"     # length_ok | short: description length only; completeness is NOT verified
+    readiness: str = "content_ok"    # content_ok | partial | thin: judged from content (responsibilities + requirements), not length
     application_status: str = "structurally_valid"  # structurally_valid | needs_review (URL shape only; destination not checked)
+    stack_fit: str = "flexible"      # python | flexible | gap (required-stack fit, separate from backend-role fit)
+    stack_note: str = ""
 
 
 def screen(job: dict[str, Any], profile: JobProfile, *, max_min_years: int = MAX_MIN_YEARS,
-           total_months: int = TOTAL_MONTHS, full_time_months: int = FULL_TIME_MONTHS) -> Screened:
+           total_months: int = TOTAL_MONTHS, full_time_months: int = FULL_TIME_MONTHS,
+           chosen_cities: tuple[str, ...] | list[str] | None = None) -> Screened:
     title, desc, loc = job.get("title") or "", job.get("description") or "", job.get("location") or ""
     exclusions, reasons, gaps, borderline, review = [], [], [], False, False
     exp = parse_experience(title, desc)
-    emp = employment_type(title, desc)
-    disc = discipline(title, desc)
-    readiness = "length_ok" if len(desc) >= MIN_ASSESSABLE_CHARS else "short"
+    emp = employment_type(title, desc, job.get("schedule_type"))
+    cls = classify_role(title, desc)
+    disc = cls["discipline"]
+    stack = stack_assessment(desc)
+    content = description_content(desc)
+    readiness = content["level"]
     mixed = bool(_MIXED_LEVEL.search(title))
     # a mixed-level opening is judged by its lowest stated requirement: the early-career opening may be the low one
     eff_min = exp.min_of_mentions if mixed else exp.required_min
@@ -252,12 +394,18 @@ def screen(job: dict[str, Any], profile: JobProfile, *, max_min_years: int = MAX
         non_sw = sorted({m.group(0).lower() for m in _NON_SOFTWARE_DESC.finditer(desc)})
         if non_sw:
             exclusions.append(f"quality role with non-software signals ({', '.join(non_sw[:4])}) in '{title}'; profile exclusion")
-        else:
-            hits = [t for t in _SOFTWARE_TERMS if t in desc.lower()]
-            if hits:
-                reasons.append(f"QA role with software evidence ({', '.join(hits[:3])})")
-            else:
-                gaps.append("unknown: QA role, software relevance not evident from the description (kept; missing keywords alone do not exclude)")
+    if cls["exclude"] and not any(e.startswith(("non-software", "quality role")) for e in exclusions):
+        exclusions.append(f"{cls['exclude']}; {DEFAULT_EXCLUDE_NOTE}")
+    if cls["review"]:
+        review = True
+        gaps.append(f"REVIEW: ambiguous role: {cls['review']}")
+    if chosen_cities:
+        where, city = location_fit(loc, chosen_cities)
+        if where == "other":
+            exclusions.append(f"location '{loc}' is outside the chosen cities ({', '.join(chosen_cities)}) and not remote; "
+                              "profile: Bengaluru or Hyderabad (relocation fine) or remote")
+        elif where == "unknown":
+            gaps.append(f"unknown: no city stated in '{loc}'; chosen cities are {', '.join(chosen_cities)}")
     india = _in_india(loc)
     if india is False:
         exclusions.append(f"location '{loc}' is outside India; profile must-have")
@@ -290,8 +438,9 @@ def screen(job: dict[str, Any], profile: JobProfile, *, max_min_years: int = MAX
         gaps.append(f"preferred (not required): {', '.join(exp.preferred_mentions)}")
     if len(set(exp.required_mentions)) > 1:
         gaps.append(f"several experience statements: {', '.join(exp.required_mentions)}")
-    if readiness == "short":
-        gaps.append(f"SHORT description ({len(desc)} chars): likely incomplete, needs more information; nothing inferred")
+    if readiness != "content_ok":
+        gaps.append(f"{readiness.upper()} description ({len(desc)} chars; missing: {', '.join(content['missing']) or 'nothing identified'}): "
+                    "needs more information before it is relied on; nothing inferred")
     gaps += [f"link/listing check: {f}" for f in job.get("flags", [])]
     app_status, app_reason = application_url_status(job.get("application_url") or "") if job.get("application_url") else ("needs_review", "no application link")
     if app_status == "needs_review":
@@ -306,23 +455,30 @@ def screen(job: dict[str, Any], profile: JobProfile, *, max_min_years: int = MAX
         if re.search(pat, title, re.I):
             role_hit = role
             break
+    be_ev = cls["backend_evidence"]
     if disc in ADJACENT_DISCIPLINES:
         fit += 1
-        reasons.append(f"adjacent discipline ({disc.replace('_', ' ')}); not one of your backend / platform / DevOps / SDET targets")
-    elif role_hit and disc in TARGET_DISCIPLINES:
-        fit += 3
-        reasons.append(f"title matches desired role '{role_hit}' ({disc} work)")
+        reasons.append(f"adjacent discipline ({disc.replace('_', ' ')}); not backend / SDE work")
+    elif disc == "backend":
+        fit += (3 if role_hit or cls["title_backend"] else 2.5) + min(len(be_ev), 4) * 0.75
+        reasons.append("backend responsibilities: " + (", ".join(be_ev) if be_ev else "title says backend; responsibilities not shown")
+                       + ("; AI product work" if cls["ai_product"] else ""))
+        if re.search(r"\bgcp\b|\baws\b|google cloud|azure|kubernetes|cloud", desc, re.I):
+            reasons.append("software role involving cloud infrastructure")
     elif role_hit:
         fit += 2
         reasons.append(f"title matches desired role '{role_hit}'; discipline not evident from the posting")
-    elif disc in TARGET_DISCIPLINES:
-        fit += 2.5
-        reasons.append(f"{disc} work")
     elif ADJACENT.search(title):
         fit += 1
         reasons.append("title is an adjacent role")
     else:
         gaps.append("title matches none of your desired roles")
+    if stack["fit"] == "python":
+        fit += 1
+        reasons.append(f"stack: {stack['note']}")
+    elif stack["fit"] == "gap":
+        fit -= 1.5
+        gaps.append(f"STACK GAP: {stack['note']} (kept visible; ranked below Python-compatible roles)")
     found = [k for k, pat in SKILLS.items() if re.search(pat, desc, re.I)]
     if found:
         fit += min(len(found), 4) * 0.5
@@ -346,27 +502,29 @@ def screen(job: dict[str, Any], profile: JobProfile, *, max_min_years: int = MAX
         fit -= 0.5
         gaps.append("contract/consulting (you prefer permanent)")
 
-    known = sum([req is not None, disc != "unspecified", readiness == "length_ok", india is True])
+    known = sum([req is not None, disc != "unspecified", readiness == "content_ok", india is True])
     confidence = "high" if known >= 4 else "medium" if known >= 3 else "low"
     target = disc in TARGET_DISCIPLINES
-    title_evidence = bool(role_hit) or any(re.search(pat, title, re.I) for _, pat in _DISCIPLINE_TITLE)   # not body keywords alone
+    title_evidence = bool(role_hit) or cls["title_backend"]            # not body keywords alone
+    responsibilities_shown = len(be_ev) >= 2                            # strong needs backend responsibilities, not a title alone
     if exclusions:
         match = "excluded"
     elif disc in ADJACENT_DISCIPLINES:
         match = "adjacent"
-    elif (target and title_evidence and readiness == "length_ok" and not borderline and not review and emp not in ("internship", "contract")
+    elif (target and title_evidence and responsibilities_shown and readiness == "content_ok" and stack["fit"] != "gap" and not borderline and not review and emp not in ("internship", "contract")
           and confidence != "low" and (early or (req is not None and req * 12 <= full_time_months))):
         match = "strong"
-    elif role_hit or target or ADJACENT.search(title):
+    elif role_hit or target or ADJACENT.search(title) or disc in ("ai_ml", "infra_ops"):
         match = "possible"          # includes thin descriptions: never a confident strong match without enough JD
     else:
         match = "weak"
     return Screened(job, not exclusions, exclusions, reasons, gaps, round(fit, 2), confidence, exp, emp, borderline,
-                    review, match, gap_ft, gap_total, disc, readiness, app_status)
+                    review, match, gap_ft, gap_total, disc, readiness, app_status, stack["fit"], stack["note"])
 
 
 def rank(screened: list[Screened]) -> tuple[list[Screened], list[Screened]]:
     level = {"strong": 0, "possible": 1, "adjacent": 2, "weak": 3}
+    stack = {"python": 0, "flexible": 1, "gap": 2}
     ok = sorted((s for s in screened if s.eligible),
-                key=lambda s: (level[s.match], -s.fit, {"high": 0, "medium": 1, "low": 2}[s.confidence]))
+                key=lambda s: (level[s.match], stack[s.stack_fit], -s.fit, {"high": 0, "medium": 1, "low": 2}[s.confidence]))
     return ok, [s for s in screened if not s.eligible]

@@ -1,52 +1,79 @@
 {
-  "_comment": "Search terms per role family. A family is used when a desired role in job-profile.md matches one of its 'roles' patterns (regex). Queries run in the listed order, round-robin across families and locations. 'kind' is informational: plain = plain role (suitable jobs do not always say junior/fresher), early = natural early-career title or an experience term. Desired roles that match no family are searched as plain roles.",
-  "default_locations": ["Bengaluru,Karnataka,India", "Hyderabad,Telangana,India"],
-  "include_site_search": false,
-  "priority": [
-    {"q": "SDE I", "city": "Bengaluru"},
-    {"q": "Associate DevOps Engineer", "city": "Hyderabad"},
-    {"q": "SDET I", "city": "Bengaluru"},
-    {"q": "Junior AI Engineer", "city": "Hyderabad"}
+  "_comment": "Search terms per role family: SDE/software engineering and backend engineering only (DevOps, SRE, platform, cloud, QA/testing and dedicated AI/ML searches were removed). A family is used when a desired role in job-profile.md matches one of its 'roles' patterns (regex). Queries run in the listed order, round-robin across families and locations. 'kind': plain = plain role (suitable jobs do not always say junior/fresher), early = early-career title or experience term. Desired roles that match no family are searched as plain roles.",
+  "default_locations": [
+    "Bengaluru,Karnataka,India",
+    "Hyderabad,Telangana,India"
   ],
-  "_priority_comment": "First-batch benchmark pins, run in this order when those cities are configured. Not a location exclusion: every other query/location pair (including the plain-role searches) stays in the wider plan.",
+  "include_site_search": false,
+  "priority": [],
   "families": {
+    "sde": {
+      "roles": [
+        "software development engineer",
+        "\\bsde\\b",
+        "software engineer",
+        "software developer"
+      ],
+      "queries": [
+        {
+          "q": "SDE I",
+          "kind": "early"
+        },
+        {
+          "q": "Software Engineer",
+          "kind": "plain"
+        },
+        {
+          "q": "SDE",
+          "kind": "plain"
+        },
+        {
+          "q": "Software Development Engineer I",
+          "kind": "early"
+        },
+        {
+          "q": "Software Engineer I",
+          "kind": "early"
+        },
+        {
+          "q": "Software Engineer 0-2 years",
+          "kind": "early"
+        }
+      ]
+    },
     "backend": {
-      "roles": ["backend", "software development engineer", "\\bsde\\b", "software engineer"],
+      "roles": [
+        "backend",
+        "back-end",
+        "python"
+      ],
       "queries": [
-        {"q": "Backend Engineer", "kind": "plain"},
-        {"q": "SDE I", "kind": "early"},
-        {"q": "Backend Developer", "kind": "plain"},
-        {"q": "Software Engineer I", "kind": "early"},
-        {"q": "Backend Engineer 0-2 years", "kind": "early"}
-      ]
-    },
-    "devops_platform": {
-      "roles": ["devops", "platform engineer", "site reliability", "\\bsre\\b", "cloud"],
-      "queries": [
-        {"q": "DevOps Engineer", "kind": "plain"},
-        {"q": "Associate DevOps Engineer", "kind": "early"},
-        {"q": "Platform Engineer", "kind": "plain"},
-        {"q": "Cloud Engineer I", "kind": "early"},
-        {"q": "Junior DevOps Engineer", "kind": "early"},
-        {"q": "Site Reliability Engineer I", "kind": "early"},
-        {"q": "DevOps Engineer 0-2 years", "kind": "early"}
-      ]
-    },
-    "testing": {
-      "roles": ["sdet", "\\bqa\\b", "quality assurance", "test"],
-      "queries": [
-        {"q": "SDET I", "kind": "early"},
-        {"q": "Software Engineer in Test", "kind": "plain"},
-        {"q": "QA Automation Engineer", "kind": "plain"},
-        {"q": "SDET", "kind": "plain"}
-      ]
-    },
-    "ai": {
-      "roles": ["\\bai\\b", "\\bml\\b", "machine learning", "\\bllm\\b"],
-      "queries": [
-        {"q": "Junior AI Engineer", "kind": "early"},
-        {"q": "AI Platform Engineer", "kind": "plain"}
+        {
+          "q": "Backend Engineer",
+          "kind": "plain"
+        },
+        {
+          "q": "Python Backend Engineer",
+          "kind": "plain"
+        },
+        {
+          "q": "Junior Backend Engineer",
+          "kind": "early"
+        },
+        {
+          "q": "Backend Developer",
+          "kind": "plain"
+        },
+        {
+          "q": "Backend Engineer 0-2 years",
+          "kind": "early"
+        }
       ]
     }
-  }
+  },
+  "city_locations": {
+    "Bengaluru": "Bengaluru,Karnataka,India",
+    "Hyderabad": "Hyderabad,Telangana,India"
+  },
+  "_city_comment": "Cities a service request may choose, with the SerpApi location string for each. Add a city here to allow it."
 }
