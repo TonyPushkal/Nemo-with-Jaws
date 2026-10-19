@@ -5,11 +5,13 @@ import threading
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+from nemo.profile import load_profile
 from nemo.providers.serpapi import SerpApi
-from nemo.service import Collector, RequestError, build_argv, make_handler, serve
+from nemo.service import Collector, RateLimiter, RequestError, build_argv, make_handler, serve
 
 CONFIG = {"city_locations": {"Bengaluru": "Bengaluru,Karnataka,India", "Hyderabad": "Hyderabad,Telangana,India"}}
 RT = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -30,9 +32,9 @@ def call(base, method, path, body=None, token=None, raw=None):
 def server(tmp_path, monkeypatch):
     started = []
 
-    def start(collector, token=None):
+    def start(collector, token=None, limiter=None):
         from http.server import ThreadingHTTPServer
-        srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(collector, token))
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(collector, token, limiter))
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         started.append(srv)
         return f"http://127.0.0.1:{srv.server_address[1]}"
@@ -145,6 +147,58 @@ def test_token_is_required_when_configured_and_non_loopback_needs_one(tmp_path, 
     monkeypatch.delenv("NEMO_SERVICE_TOKEN", raising=False)
     with pytest.raises(SystemExit, match="non-loopback"):
         serve("0.0.0.0", 0, runs_dir=str(tmp_path / "r"), env_file=str(tmp_path / "none"))
+
+
+def test_a_custom_profile_is_written_to_the_run_dir_and_screened_against_instead_of_the_servers_own(tmp_path):
+    (tmp_path / "runs").mkdir()
+    body = {"experience": "Two years building backend services in Python.", "desired_roles": ["Backend Engineer", "SDE"],
+           "must_haves": ["Remote within India"], "nice_to_haves": ["Python"], "exclusions": ["Sales"]}
+    argv = build_argv(body, profile="p.md", runs_dir=str(tmp_path / "runs"), db="d", config=CONFIG, run_id="r1",
+                      profile_dir=tmp_path / "runs")
+    written = argv[argv.index("--profile") + 1]
+    assert written != "p.md" and Path(written) == tmp_path / "runs" / "profile.md"
+    prof = load_profile(written)
+    assert prof.experience.startswith("Two years") and prof.desired_roles == ("Backend Engineer", "SDE")
+    assert prof.must_haves == ("Remote within India",) and prof.exclusions == ("Sales",)
+    # request_budget is capped tighter for a visitor-supplied profile than the server's own default path
+    with pytest.raises(RequestError, match="request_budget must be an integer between 1 and 10"):
+        build_argv({**body, "request_budget": 20}, profile="p.md", runs_dir=str(tmp_path / "runs"), db="d", config=CONFIG,
+                  run_id="r2", profile_dir=tmp_path / "runs")
+    with pytest.raises(RequestError, match="titles cannot be combined"):
+        build_argv({**body, "titles": ["x"]}, profile="p.md", runs_dir=str(tmp_path / "runs"), db="d", config=CONFIG,
+                  run_id="r3", profile_dir=tmp_path / "runs")
+    with pytest.raises(RequestError, match="needs: desired_roles"):
+        build_argv({"experience": "x"}, profile="p.md", runs_dir=str(tmp_path / "runs"), db="d", config=CONFIG, run_id="r4",
+                  profile_dir=tmp_path / "runs")
+    with pytest.raises(RequestError, match="Desired roles is empty|desired_roles"):
+        build_argv({**body, "desired_roles": []}, profile="p.md", runs_dir=str(tmp_path / "runs"), db="d", config=CONFIG,
+                  run_id="r5", profile_dir=tmp_path / "runs")
+
+
+def test_rate_limiter_is_a_shared_sliding_window_and_failed_requests_give_their_slot_back():
+    rl = RateLimiter(limit=2, window_seconds=3600)
+    ok1, q1 = rl.try_consume()
+    ok2, q2 = rl.try_consume()
+    ok3, q3 = rl.try_consume()
+    assert (ok1, ok2, ok3) == (True, True, False) and q1["remaining"] == 1 and q2["remaining"] == 0 and q3["remaining"] == 0
+    assert q3["retry_after_seconds"] > 0
+    rl.release()
+    ok4, q4 = rl.try_consume()
+    assert ok4 is True and q4["remaining"] == 0
+
+
+def test_the_http_layer_enforces_the_shared_rate_limit_and_exposes_it_at_slash_quota(tmp_path, server):
+    col = Collector(profile="p.md", runs_dir=str(tmp_path / "runs"), db="d", runner=lambda a: 0, config=CONFIG)
+    base = server(col, token="s3cret", limiter=RateLimiter(limit=2, window_seconds=3600))
+    assert call(base, "GET", "/quota")[0] == 401                              # API endpoints still need the token
+    assert call(base, "GET", "/quota", token="s3cret")[1]["remaining"] == 2
+    assert call(base, "POST", "/runs", {}, token="s3cret")[0] == 202
+    assert call(base, "GET", "/quota", token="s3cret")[1]["remaining"] == 1
+    assert call(base, "POST", "/runs", {}, token="s3cret")[0] == 202
+    code, body = call(base, "POST", "/runs", {}, token="s3cret")
+    assert code == 429 and body["remaining"] == 0 and "rate limit" in body["error"]
+    with urllib.request.urlopen(base + "/", timeout=10) as r:                 # the static frontend needs no token
+        assert r.status == 200 and b"<html" in r.read()[:200]
 
 
 def test_a_run_left_running_by_a_dead_process_is_marked_interrupted_on_start(tmp_path):

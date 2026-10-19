@@ -54,3 +54,25 @@ Collection service (stdlib, localhost, one run at a time; same flow and spend gu
 curl -s -X POST localhost:8765/runs -d '{"cities": ["Bengaluru", "Hyderabad"], "max_age_hours": 24, "request_budget": 12}'
 curl -s localhost:8765/runs/<run_id>                     # state, stop reason, freshness, fresh shortlist
 ```
+
+A request can instead supply its own profile (`experience`, `desired_roles`, optional `must_haves`/`nice_to_haves`/`exclusions`)
+instead of `titles`; it is screened against that profile, not `job-profile.md`, and capped at 10 searches per run regardless of
+`request_budget`. `GET /quota` reports a shared rate limit (`NEMO_RATE_LIMIT_PER_HOUR`, default 5 runs/hour across every caller) so
+a public deployment can't run up unbounded SerpApi spend; `scripts/serve.py` also serves a static frontend (`frontend/`) at `/` that
+uses this — a visitor fills in their own background, the page polls the run and shows matches. Nothing a visitor submits is stored
+beyond `runs/<run_id>/profile.md` for that one run (gitignored, same as everything else under `runs/`).
+
+## Public demo deployment
+
+`render.yaml` deploys the service (API + static frontend, one process) to [Render](https://render.com)'s free tier:
+
+1. Push this repo to GitHub, then on Render: New → Blueprint → pick the repo (Render reads `render.yaml`).
+2. Fill in the env vars Render prompts for: `SERPAPI_API_KEY`, `NEMO_MAX_USD_PER_RUN` (e.g. `0.50`), optionally
+   `NEMO_MONTHLY_USD_CAP`, and `NEMO_SERVICE_TOKEN` (any random string — required because the service binds to `0.0.0.0`
+   on Render, not loopback).
+3. Copy that same `NEMO_SERVICE_TOKEN` value into `API_TOKEN` at the top of `frontend/app.js` before deploying. **This is not a
+   real secret** — it ships to every visitor's browser and is visible via view-source. It only satisfies the service's
+   non-loopback guard; the actual protections against runaway cost are the shared `/quota` rate limit and your SerpApi budget
+   caps above.
+4. Render's free plan spins down after idle and cold-starts on the next request (tens of seconds) — expected for a demo, not a
+   bug. The in-memory rate limiter and `data/nemo.sqlite` ledger reset on every cold start/redeploy.

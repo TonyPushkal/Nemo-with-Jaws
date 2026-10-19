@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nemo — find jobs relevant to you</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="wrap">
+  <h1>Nemo</h1>
+  <p class="tagline">Tell it about yourself. It searches live job postings and tells you which ones actually fit.</p>
+  <p class="meta">
+    A personal project by Tony Pushkal —
+    <a href="https://github.com/TonyPushkal/Nemo-with-Jaws" target="_blank" rel="noopener">source on GitHub</a>.
+    Runs real searches against a paid API, so this demo is capped:
+    <strong><span id="quota-remaining">–</span> of <span id="quota-limit">–</span></strong> searches left this hour, shared by everyone here.
+  </p>
+</header>
+
+<main class="wrap">
+  <form id="search-form">
+    <section class="card">
+      <h2>Your background</h2>
+      <label for="experience">Experience</label>
+      <textarea id="experience" rows="4" maxlength="1200" required
+        placeholder="e.g. 2 years as a backend engineer building Python/FastAPI services and REST APIs. B.Tech in Computer Science. Based in Bengaluru."></textarea>
+
+      <label for="roles">Desired roles <span class="hint">(one per line, up to 8)</span></label>
+      <textarea id="roles" rows="3" required placeholder="Backend Engineer&#10;Software Development Engineer"></textarea>
+    </section>
+
+    <section class="card">
+      <h2>Criteria <span class="hint">(optional — one per line, up to 8 each)</span></h2>
+      <label for="must-haves">Must-haves <span class="hint">a job that contradicts one is not a match</span></label>
+      <textarea id="must-haves" rows="2" placeholder="Located in India or remote within India&#10;Does not require 3+ years of experience"></textarea>
+
+      <label for="nice-to-haves">Nice-to-haves</label>
+      <textarea id="nice-to-haves" rows="2" placeholder="Python backend, APIs, cloud infrastructure&#10;Product company or startup"></textarea>
+
+      <label for="exclusions">Exclusions <span class="hint">a job that shows one is not a match</span></label>
+      <textarea id="exclusions" rows="2" placeholder="Non-software roles&#10;Primarily DevOps/SRE/QA"></textarea>
+    </section>
+
+    <section class="card">
+      <h2>Where and how fresh</h2>
+      <div class="row">
+        <fieldset>
+          <legend>Cities</legend>
+          <label class="check"><input type="checkbox" name="city" value="Bengaluru" checked> Bengaluru</label>
+          <label class="check"><input type="checkbox" name="city" value="Hyderabad" checked> Hyderabad</label>
+        </fieldset>
+        <div class="field">
+          <label for="max-age">Posting age</label>
+          <select id="max-age">
+            <option value="24">Last 24 hours</option>
+            <option value="48">Last 2 days</option>
+            <option value="168" selected>Last 7 days</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <button id="submit-btn" type="submit">Find jobs</button>
+    <p id="form-error" class="error" hidden></p>
+  </form>
+
+  <section id="status" class="card" hidden>
+    <h2>Searching…</h2>
+    <p id="status-text">Starting.</p>
+    <div class="spinner"></div>
+  </section>
+
+  <section id="results" hidden>
+    <h2>Results</h2>
+    <p id="results-summary" class="meta"></p>
+    <div id="results-list"></div>
+  </section>
+</main>
+
+<footer class="wrap meta">
+  <p>Jobs come from Google Jobs via SerpApi; posting ages are Google's own unverified estimates. Nothing you type is
+     stored beyond this search run. Phase 1 of a larger job-search assistant — see the repo for what's next.</p>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

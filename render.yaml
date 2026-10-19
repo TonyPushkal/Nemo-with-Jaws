@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: nemo-with-jaws
+    runtime: python
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: python scripts/serve.py --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: NEMO_PAID_CALLS_ENABLED
+        value: "true"
+      - key: NEMO_MAX_USD_PER_RUN
+        sync: false
+      - key: NEMO_MONTHLY_USD_CAP
+        sync: false
+      - key: NEMO_SERVICE_TOKEN
+        sync: false
+      - key: NEMO_RATE_LIMIT_PER_HOUR
+        value: "5"

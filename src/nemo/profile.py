@@ -157,6 +157,20 @@ def parse_profile(text: str) -> JobProfile:
         raise ProfileError("; ".join(msgs)) from None
 
 
+def render_profile(profile: JobProfile) -> str:
+    """Inverse of parse_profile: a JobProfile back to the five-section Markdown it was built from."""
+    def block(name: str, body: str) -> str:
+        return f"## {name}\n{body}".rstrip()
+    bullets = lambda items: "\n".join(f"- {x}" for x in items)
+    return "\n\n".join([
+        block("Experience", profile.experience),
+        block("Desired roles", bullets(profile.desired_roles)),
+        block("Must-haves", bullets(profile.must_haves)),
+        block("Nice-to-haves", bullets(profile.nice_to_haves)),
+        block("Exclusions", bullets(profile.exclusions)),
+    ]) + "\n"
+
+
 def load_profile(path: Path | str) -> JobProfile:
     p = Path(path)
     try:
